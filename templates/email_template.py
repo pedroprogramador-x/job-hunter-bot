@@ -1,5 +1,6 @@
 # Template HTML para o e-mail de notificação de novas vagas
 
+import html
 from datetime import datetime
 
 _SOURCE_COLORS = {
@@ -15,13 +16,18 @@ def _source_color(source: str) -> str:
     return _SOURCE_COLORS.get(source, _DEFAULT_COLOR)
 
 
+def _safe_url(url: str) -> str:
+    """Aceita só http/https; qualquer outro valor vira '#'."""
+    return url if url.startswith(("http://", "https://")) else "#"
+
+
 def _job_card(job: dict, score: float) -> str:
-    color   = _source_color(job.get("source", ""))
-    title   = job.get("title", "Sem título")
-    company = job.get("company", "") or "—"
-    location = job.get("location", "") or "—"
-    source  = job.get("source", "—")
-    url     = job.get("url", "#")
+    color    = _source_color(job.get("source", ""))
+    title    = html.escape(job.get("title", "Sem título"))
+    company  = html.escape(job.get("company", "") or "—")
+    location = html.escape(job.get("location", "") or "—")
+    source   = html.escape(job.get("source", "—"))
+    url      = _safe_url(job.get("url", "#"))
 
     return f"""
     <div style="
@@ -84,10 +90,10 @@ def render_email(jobs: list[tuple[dict, float]], ai_analysis: str = "") -> str:
             margin:24px 0 0 0;
             font-family:Arial,Helvetica,sans-serif;
         ">
-            <p style="margin:0 0 8px 0;font-size:15px;font-weight:700;color:#0369a1;">
+            <div style="margin:0 0 8px 0;font-size:15px;font-weight:700;color:#0369a1;">
                 🤖 Análise de IA
-            </p>
-            <p style="margin:0;font-size:14px;color:#374151;white-space:pre-line;">{ai_analysis}</p>
+            </div>
+            <div style="margin:0;font-size:14px;color:#374151;white-space:pre-line;">{ai_analysis}</div>
         </div>"""
 
     return f"""<!DOCTYPE html>

@@ -68,6 +68,10 @@ def fetch_jobs() -> list[dict]:
         title_el = anchor.select_one("h3")
         title = title_el.get_text(strip=True) if title_el else path
 
+        # Pula vagas encerradas/vencidas
+        if any(word in title.lower() for word in ("vencida", "encerrada")):
+            continue
+
         # Empresa — span que contém <i class="fa fa-briefcase">
         company = _extract_icon_text(anchor, "fa-briefcase")
 

@@ -60,16 +60,18 @@ def send_jobs_email(
 
     try:
         client   = SendGridAPIClient(api_key)
+        client.client.timeout = 15
         response = client.send(message)
         if response.status_code == 202:
+            masked = notify_email[:3] + "***"
             logger.info(
                 "E-mail enviado para %s com %d vaga(s). [SendGrid 202]",
-                notify_email, len(jobs),
+                masked, len(jobs),
             )
             return True
         logger.error(
-            "SendGrid retornou status inesperado %d: %s",
-            response.status_code, response.body,
+            "SendGrid retornou status inesperado %d.",
+            response.status_code,
         )
     except Exception as exc:
         logger.error("Erro ao enviar e-mail via SendGrid: %s", exc)

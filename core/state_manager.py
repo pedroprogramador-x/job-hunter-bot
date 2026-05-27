@@ -38,15 +38,26 @@ def load_seen_ids() -> set[str]:
         return set()
 
 
-def save_seen_ids(seen_ids: set[str]) -> None:
-    """Persiste o set de IDs como lista JSON em seen_jobs.json."""
+def save_seen_ids(seen_ids: set[str]) -> bool:
+    """Persiste o set de IDs como lista JSON em seen_jobs.json (escrita atômica).
+
+    Retorna True se salvou com sucesso, False se falhou.
+    """
     _ensure_data_dir()
+    tmp = _STATE_FILE.with_suffix(".tmp")
     try:
-        with _STATE_FILE.open("w", encoding="utf-8") as fh:
+        with tmp.open("w", encoding="utf-8") as fh:
             json.dump(sorted(seen_ids), fh, ensure_ascii=False, indent=2)
+        os.replace(tmp, _STATE_FILE)
         logger.debug("Estado salvo: %d IDs em '%s'.", len(seen_ids), _STATE_FILE)
+        return True
     except OSError as exc:
         logger.error("Erro ao salvar '%s': %s", _STATE_FILE, exc)
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return False
 
 
 def filter_new_jobs(jobs: list[dict]) -> tuple[list[dict], set[str]]:

@@ -41,7 +41,7 @@ def _parse_job(job: dict) -> dict:
         location = city or state or ""
 
     return {
-        "id": "gupy_" + str(job["id"]),
+        "id": "gupy_" + str(job.get("id", "")),
         "source": "Gupy",
         "title": job.get("name", ""),
         "company": job.get("careerPageName", ""),
@@ -60,15 +60,20 @@ def fetch_jobs(params: dict | None = None) -> list[dict]:
         response = requests.get(_API_URL, params=search_params, headers=_HEADERS, timeout=15)
         response.raise_for_status()
         data = response.json()
+    except ValueError as exc:
+        logger.error("Gupy API returned invalid JSON: %s", exc)
+        return []
     except requests.RequestException as exc:
         logger.error("Gupy API request failed: %s", exc)
         return []
 
-    raw_jobs = data.get("data", [])
+    raw_jobs = data.get("data") or []
     seen_ids: set[str] = set()
     jobs: list[dict] = []
     for job in raw_jobs:
         parsed = _parse_job(job)
+        if not parsed["id"] or parsed["id"] == "gupy_":
+            continue
         if parsed["id"] not in seen_ids:
             seen_ids.add(parsed["id"])
             jobs.append(parsed)

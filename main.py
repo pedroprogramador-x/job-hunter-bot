@@ -144,7 +144,13 @@ def run_pipeline() -> None:
 
 
 def main() -> None:
-    interval = int(os.getenv("SCHEDULE_INTERVAL_HOURS", "1"))
+    try:
+        interval = int(os.getenv("SCHEDULE_INTERVAL_HOURS", "1"))
+    except ValueError:
+        logger.warning(
+            "SCHEDULE_INTERVAL_HOURS inválido — usando padrão de 1 hora."
+        )
+        interval = 1
 
     logger.info("Job Hunter Bot iniciado com sucesso.")
     logger.info("Intervalo de execução: %d hora(s)", interval)

@@ -60,9 +60,16 @@ def analyze_jobs(jobs: list[tuple[dict, float]]) -> str:
 
     try:
         from google import genai
+        from google.genai import types as genai_types
         client = genai.Client(api_key=api_key)
         prompt = _build_prompt(jobs)
-        response = client.models.generate_content(model=_MODEL, contents=prompt)
+        response = client.models.generate_content(
+            model=_MODEL,
+            contents=prompt,
+            config=genai_types.GenerateContentConfig(
+                http_options=genai_types.HttpOptions(timeout=30_000),
+            ),
+        )
         result = response.text.strip()
         logger.info("Análise Gemini concluída (%d chars).", len(result))
         return result
