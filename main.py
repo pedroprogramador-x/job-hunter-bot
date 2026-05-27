@@ -143,6 +143,69 @@ def run_pipeline() -> None:
     logger.info(_SEP)
 
 
+_RESUME_FALLBACK = """\
+PEDRO HENRIQUE BEZERRA DE LIMA
+Desenvolvedor Backend em Formação | Python · FastAPI · PostgreSQL · REST APIs
+pedrophbezerra@gmail.com | github.com/pedroprogramador-x | Maceió, AL
+
+OBJETIVO
+Estágio em Desenvolvimento de Software | Backend Python
+Estudante de Engenharia de Software com projeto backend em produção real: API REST com FastAPI, PostgreSQL e autenticação JWT, rodando 24h no Railway.
+
+PROJETOS
+Sports Analysis Bot — Python · FastAPI · PostgreSQL · JWT · APScheduler · Railway [EM PRODUÇÃO]
+- API REST completa com FastAPI, PostgreSQL e SQLAlchemy ORM
+- Autenticação JWT completa: registro, login, tokens Bearer
+- Integração com API externa paginada consumindo odds de 15+ casas de apostas
+- Lógica de value betting implementada do zero
+- Scheduler automático via APScheduler com notificações Telegram
+- Histórico de picks com win rate e ROI via endpoint REST
+
+Job Hunter Bot — Python · APScheduler · BeautifulSoup4 · SendGrid · Gemini API · Railway [EM PRODUÇÃO]
+- Sistema automatizado de monitoramento de vagas de TI
+- Scraping de Gupy, LinkedIn e Programathor com filtro de relevância por score
+- Análise de vagas com IA (Gemini) e envio de email via SendGrid
+- Deploy contínuo no Railway com volume persistente
+
+Sabor Caseiro Cardápio Digital — JavaScript ES6+ · HTML5 · CSS3 · GitHub Pages
+Sabor Caseiro Link de Bio — JavaScript · HTML5 · CSS3 · GitHub Pages
+Gerenciador de Tarefas (CRUD) — Python
+Sistema de Controle Financeiro — Python
+
+HABILIDADES
+Backend: Python · FastAPI · SQLAlchemy · PostgreSQL · JWT · APScheduler · Pydantic
+Conceitos: REST APIs · CRUD · Autenticação · Automação · Consumo de APIs externas
+DevOps: Git · GitHub · Railway · Linux (básico)
+Frontend: JavaScript ES6+ · HTML5 · CSS3
+
+FORMAÇÃO
+Engenharia de Software — Estácio (cursando, mar/2025 – dez/2028) — Maceió, AL
+
+EXPERIÊNCIA
+Operador de Caixa — Farmácia Permanente (fev/2025 – abr/2026)
+- Operação do sistema Procfit, responsabilidade financeira diária, treinamento de colaboradores
+
+IDIOMAS
+Português nativo | Inglês básico (leitura técnica)
+"""
+
+
+def _ensure_resume() -> None:
+    """Garante que DATA_DIR/resume.txt existe, criando a partir do fallback se necessário."""
+    from pathlib import Path
+    data_dir = Path(os.getenv("DATA_DIR", "./data"))
+    resume_path = data_dir / "resume.txt"
+    if resume_path.exists():
+        logger.debug("Currículo encontrado em '%s'.", resume_path)
+        return
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        resume_path.write_text(_RESUME_FALLBACK, encoding="utf-8")
+        logger.info("Currículo criado em '%s' a partir do fallback hardcoded.", resume_path)
+    except OSError as exc:
+        logger.warning("Não foi possível criar o currículo em '%s': %s", resume_path, exc)
+
+
 def main() -> None:
     try:
         interval = int(os.getenv("SCHEDULE_INTERVAL_HOURS", "1"))
@@ -154,6 +217,8 @@ def main() -> None:
 
     logger.info("Job Hunter Bot iniciado com sucesso.")
     logger.info("Intervalo de execução: %d hora(s)", interval)
+
+    _ensure_resume()
 
     # Executa imediatamente antes de agendar
     run_pipeline()
