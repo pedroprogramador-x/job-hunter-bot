@@ -16,7 +16,26 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 _SMTP_HOST = "smtp.gmail.com"
-_SMTP_PORT = 587
+
+
+def _try_starttls(host: str, gmail_user: str, gmail_password: str, raw_msg: str, notify_email: str) -> bool:
+    """Tenta envio via porta 587 com STARTTLS. Lança OSError/ConnectionRefusedError se não conectar."""
+    with smtplib.SMTP(host, 587, timeout=30) as server:
+        server.ehlo()
+        server.starttls()
+        server.ehlo()
+        server.login(gmail_user, gmail_password)
+        server.sendmail(gmail_user, notify_email, raw_msg)
+    return True
+
+
+def _try_ssl(host: str, gmail_user: str, gmail_password: str, raw_msg: str, notify_email: str) -> bool:
+    """Tenta envio via porta 465 com SMTP_SSL."""
+    with smtplib.SMTP_SSL(host, 465, timeout=30) as server:
+        server.ehlo()
+        server.login(gmail_user, gmail_password)
+        server.sendmail(gmail_user, notify_email, raw_msg)
+    return True
 
 
 def send_jobs_email(
@@ -25,6 +44,8 @@ def send_jobs_email(
 ) -> bool:
     """Envia e-mail com as vagas encontradas via Gmail SMTP.
 
+    Tenta primeiro porta 587 (STARTTLS). Se a conexão falhar por OSError ou
+    ConnectionRefusedError, faz segunda tentativa na porta 465 (SMTP_SSL).
     Retorna True se o envio foi bem-sucedido, False caso contrário.
     """
     gmail_user     = os.getenv("GMAIL_USER", "")
@@ -55,25 +76,40 @@ def send_jobs_email(
     msg["From"]    = gmail_user
     msg["To"]      = notify_email
     msg.attach(MIMEText(html_body, "html", "utf-8"))
+    raw_msg = msg.as_string()
 
+    # ── Tentativa 1: porta 587 / STARTTLS ────────────────────────────────────
     try:
-        with smtplib.SMTP(_SMTP_HOST, _SMTP_PORT, timeout=30) as server:
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-            server.login(gmail_user, gmail_password)
-            server.sendmail(gmail_user, notify_email, msg.as_string())
-        logger.info("E-mail enviado para %s com %d vaga(s).", notify_email, len(jobs))
+        _try_starttls(_SMTP_HOST, gmail_user, gmail_password, raw_msg, notify_email)
+        logger.info("E-mail enviado para %s com %d vaga(s). [587/STARTTLS]", notify_email, len(jobs))
         return True
     except smtplib.SMTPAuthenticationError:
         logger.error(
             "Falha de autenticação no Gmail. "
             "Verifique GMAIL_USER e GMAIL_APP_PASSWORD (use App Password, não a senha normal)."
         )
+        return False  # Auth inválida — segunda tentativa não vai resolver
+    except (OSError, ConnectionRefusedError) as exc:
+        logger.warning("Porta 587 indisponível (%s). Tentando porta 465/SSL...", exc)
     except smtplib.SMTPException as exc:
-        logger.error("Erro SMTP ao enviar e-mail: %s", exc)
+        logger.error("Erro SMTP na porta 587: %s", exc)
+        return False
+
+    # ── Tentativa 2: porta 465 / SMTP_SSL ────────────────────────────────────
+    try:
+        _try_ssl(_SMTP_HOST, gmail_user, gmail_password, raw_msg, notify_email)
+        logger.info("E-mail enviado para %s com %d vaga(s). [465/SSL]", notify_email, len(jobs))
+        return True
+    except smtplib.SMTPAuthenticationError:
+        logger.error(
+            "Falha de autenticação no Gmail (porta 465). "
+            "Verifique GMAIL_USER e GMAIL_APP_PASSWORD."
+        )
+    except smtplib.SMTPException as exc:
+        logger.error("Erro SMTP na porta 465: %s", exc)
     except OSError as exc:
-        logger.error("Erro de rede ao conectar ao Gmail SMTP: %s", exc)
+        logger.error("Porta 465 também indisponível: %s", exc)
+
     return False
 
 
