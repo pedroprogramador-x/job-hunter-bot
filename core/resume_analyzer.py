@@ -2,6 +2,7 @@
 
 import logging
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -10,14 +11,24 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 _MODEL = "gemini-flash-lite-latest"
+_DATA_DIR = Path(os.getenv("DATA_DIR", "./data"))
+_RESUME_FILE = _DATA_DIR / "resume.txt"
 
-_CANDIDATE_PROFILE = """PERFIL DO CANDIDATO:
-- Nome: Pedro
-- Formação: Engenharia de Software — Estácio (cursando, dez/2028)
-- Stack: Python (intermediário), FastAPI, PostgreSQL, SQLAlchemy, JWT, APScheduler, SQL, JavaScript (iniciando), Git
-- Projetos: Sports Analysis Bot (API REST em produção no Railway), Task Manager, Finance Manager, Job Hunter Bot (sistema de monitoramento de vagas com scraping e IA)
-- Experiência formal em TI: nenhuma
-- Objetivo: estágio ou júnior remoto em back-end ou full-stack"""
+
+def _load_resume() -> str:
+    """Lê DATA_DIR/resume.txt e retorna o conteúdo. Retorna string vazia se não existir."""
+    if not _RESUME_FILE.exists():
+        logger.warning(
+            "Currículo não encontrado em '%s' — análise sem currículo.", _RESUME_FILE
+        )
+        return ""
+    try:
+        content = _RESUME_FILE.read_text(encoding="utf-8").strip()
+        logger.debug("Currículo carregado (%d chars) de '%s'.", len(content), _RESUME_FILE)
+        return content
+    except OSError as exc:
+        logger.warning("Erro ao ler currículo '%s': %s", _RESUME_FILE, exc)
+        return ""
 
 
 def _build_prompt(jobs: list[tuple[dict, float]]) -> str:
@@ -29,11 +40,26 @@ def _build_prompt(jobs: list[tuple[dict, float]]) -> str:
         )
     jobs_block = "\n".join(lines) if lines else "(nenhuma vaga)"
 
+    resume = _load_resume()
+
+    if resume:
+        return f"""Você é um assistente de carreira especializado em tecnologia.
+
+Analise as vagas abaixo e compare com o currículo do candidato.
+Identifique: quais vagas têm melhor fit, o que destacar ou ajustar no currículo para cada vaga, e uma dica prática de candidatura.
+
+CURRÍCULO DO CANDIDATO:
+{resume}
+
+VAGAS ENCONTRADAS:
+{jobs_block}
+
+Responda em HTML simples (sem markdown, sem ```html). Máximo 250 palavras. Seja direto e específico."""
+
+    # Fallback: sem currículo
     return f"""Você é um assistente de carreira especializado em tecnologia.
 
-Analise as seguintes vagas encontradas para o candidato abaixo e forneça sugestões práticas e diretas.
-
-{_CANDIDATE_PROFILE}
+Analise as seguintes vagas e forneça sugestões práticas e diretas para um candidato a estágio ou vaga júnior remota em back-end ou full-stack com Python.
 
 VAGAS ENCONTRADAS:
 {jobs_block}
