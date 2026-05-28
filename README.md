@@ -39,7 +39,7 @@ O estado só é salvo **após** a confirmação de envio do e-mail. Se o envio f
 |---|---|---|
 | **Gupy** | API REST (`employability-portal.gupy.io`) | ✅ Ativo |
 | **LinkedIn** | Guest API pública (`/jobs-guest/`) | ✅ Ativo |
-| **Programathor** | HTML scraping (BeautifulSoup4) | ✅ Ativo |
+| **Programathor** | HTML scraping (BeautifulSoup4) | ⚠️ Bloqueado no Railway (Cloudflare) |
 | **Indeed** | RSS feed | ❌ Bloqueado (Cloudflare 403) |
 
 ---
