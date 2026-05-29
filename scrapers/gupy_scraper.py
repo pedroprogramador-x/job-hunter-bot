@@ -12,8 +12,17 @@ _HEADERS = {
     "Referer": "https://portal.gupy.io/",
     "Origin": "https://portal.gupy.io",
 }
-_DEFAULT_PARAMS = {
-    "jobName": "python",
+_SEARCH_TERMS = [
+    "python",
+    "fastapi",
+    "backend",
+    "estagio tecnologia",
+    "desenvolvedor junior",
+    "automacao",
+    "django",
+    "flask",
+]
+_BASE_PARAMS = {
     "workplaceType": "remote",
     "limit": 20,
     "sortBy": "publishedDate",
@@ -54,31 +63,41 @@ def _parse_job(job: dict) -> dict:
     }
 
 
-def fetch_jobs(params: dict | None = None) -> list[dict]:
-    search_params = {**_DEFAULT_PARAMS, **(params or {})}
+def _fetch_term(term: str) -> list[dict]:
+    """Busca vagas para um único termo. Retorna lista vazia em caso de erro."""
+    params = {**_BASE_PARAMS, "jobName": term}
     try:
-        response = requests.get(_API_URL, params=search_params, headers=_HEADERS, timeout=15)
+        response = requests.get(_API_URL, params=params, headers=_HEADERS, timeout=15)
         response.raise_for_status()
         data = response.json()
     except ValueError as exc:
-        logger.error("Gupy API returned invalid JSON: %s", exc)
+        logger.error("Gupy: JSON inválido para termo '%s': %s", term, exc)
         return []
     except requests.RequestException as exc:
-        logger.error("Gupy API request failed: %s", exc)
+        logger.error("Gupy: erro de rede para termo '%s': %s", term, exc)
         return []
+    return data.get("data") or []
 
-    raw_jobs = data.get("data") or []
+
+def fetch_jobs(params: dict | None = None) -> list[dict]:
+    terms = _SEARCH_TERMS
+    # Permite sobrescrever tudo via params legado (retrocompatibilidade)
+    if params and "jobName" in params:
+        terms = [params["jobName"]]
+
     seen_ids: set[str] = set()
     jobs: list[dict] = []
-    for job in raw_jobs:
-        parsed = _parse_job(job)
-        if not parsed["id"] or parsed["id"] == "gupy_":
-            continue
-        if parsed["id"] not in seen_ids:
-            seen_ids.add(parsed["id"])
-            jobs.append(parsed)
 
-    logger.info("Gupy: %d vagas encontradas", len(jobs))
+    for term in terms:
+        for raw in _fetch_term(term):
+            parsed = _parse_job(raw)
+            if not parsed["id"] or parsed["id"] == "gupy_":
+                continue
+            if parsed["id"] not in seen_ids:
+                seen_ids.add(parsed["id"])
+                jobs.append(parsed)
+
+    logger.info("Gupy: %d vagas únicas em %d termos", len(jobs), len(terms))
     return jobs
 
 
