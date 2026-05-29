@@ -101,6 +101,14 @@ def run_pipeline() -> None:
         logger.info(_SEP)
         return
 
+    # ── 4b. Limita a top 20 por score ─────────────────────────────────────────
+    _LIMIT = 20
+    new_jobs.sort(key=lambda t: t[1], reverse=True)
+    if len(new_jobs) > _LIMIT:
+        discarded = len(new_jobs) - _LIMIT
+        new_jobs = new_jobs[:_LIMIT]
+        logger.info("        %d vaga(s) descartadas por limite de %d", discarded, _LIMIT)
+
     for job, score in new_jobs:
         logger.info(
             "  [%.1f] %-50s  %s",

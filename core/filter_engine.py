@@ -41,9 +41,18 @@ _NEGATIVE_WEIGHTS: list[tuple[str, float]] = [
     ("pleno", -3),
     (".net", -3),
     ("c#", -3),
-    ("presencial", -2),
+    ("presencial", -3),
+    ("híbrido", -1),
+    ("hibrido", -1),
     ("3 anos", -3),
     ("4 anos", -3),
+    ("são paulo", -2),
+    ("rio de janeiro", -2),
+    ("belo horizonte", -2),
+    ("curitiba", -2),
+    ("porto alegre", -2),
+    ("são leopoldo", -2),
+    ("campinas", -2),
 ]
 
 
@@ -104,6 +113,13 @@ if __name__ == "__main__":
             "title": "Sênior .NET São Paulo",
             "company": "",
             "location": "São Paulo",
+            "workplace_type": "onsite",
+            "job_type": "full-time",
+        },
+        {
+            "title": "Python Developer - São Leopoldo, RS",
+            "company": "",
+            "location": "São Leopoldo, RS",
             "workplace_type": "onsite",
             "job_type": "full-time",
         },
