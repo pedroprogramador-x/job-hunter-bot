@@ -53,6 +53,23 @@ _NEGATIVE_WEIGHTS: list[tuple[str, float]] = [
     ("porto alegre", -2),
     ("são leopoldo", -2),
     ("campinas", -2),
+    # áreas não técnicas
+    ("vendas", -4),
+    ("recrutamento", -4),
+    ("seleção", -4),
+    ("selecao", -4),
+    ("recursos humanos", -4),
+    ("rh ", -4),
+    ("comercial", -3),
+    ("sdr", -4),
+    ("atendimento", -3),
+    ("suporte", -2),
+    ("financeiro", -3),
+    ("contabil", -3),
+    ("contábil", -3),
+    ("marketing", -3),
+    ("design", -2),
+    ("produto", -1),
 ]
 
 
@@ -122,6 +139,27 @@ if __name__ == "__main__":
             "location": "São Leopoldo, RS",
             "workplace_type": "onsite",
             "job_type": "full-time",
+        },
+        {
+            "title": "Estágio Em Recrutamento E Seleção Remoto",
+            "company": "",
+            "location": "",
+            "workplace_type": "remote",
+            "job_type": "intern",
+        },
+        {
+            "title": "Formação em Vendas SDR 100% Remoto",
+            "company": "",
+            "location": "",
+            "workplace_type": "remote",
+            "job_type": "full-time",
+        },
+        {
+            "title": "Estágio Python Backend Remoto",
+            "company": "",
+            "location": "",
+            "workplace_type": "remote",
+            "job_type": "intern",
         },
     ]
 
