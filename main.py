@@ -25,6 +25,7 @@ from scrapers.linkedin_scraper    import fetch_jobs as linkedin_fetch
 from scrapers.programathor_scraper import fetch_jobs as programathor_fetch
 from core.filter_engine           import filter_jobs
 from core.state_manager           import filter_new_jobs, save_seen_ids
+from core.description_fetcher     import fetch_descriptions
 from core.resume_analyzer         import analyze_jobs
 from core.email_sender            import send_jobs_email
 
@@ -108,6 +109,24 @@ def run_pipeline() -> None:
         discarded = len(new_jobs) - _LIMIT
         new_jobs = new_jobs[:_LIMIT]
         logger.info("        %d vaga(s) descartadas por limite de %d", discarded, _LIMIT)
+
+    # ── 3b. Busca descrições + re-filtro ──────────────────────────────────────
+    logger.info("[ 3b  ] Buscando descrições das %d vaga(s) top...", len(new_jobs))
+    new_jobs = fetch_descriptions(new_jobs)
+
+    before_refilter = len(new_jobs)
+    new_jobs = filter_jobs([job for job, _ in new_jobs], min_score=3.0)
+    dropped_by_desc = before_refilter - len(new_jobs)
+    if dropped_by_desc:
+        logger.info(
+            "        %d vaga(s) descartada(s) pelo re-filtro com descrição",
+            dropped_by_desc,
+        )
+
+    if not new_jobs:
+        logger.info("Nenhuma vaga aprovada após re-filtro com descrição. Encerrando ciclo.")
+        logger.info(_SEP)
+        return
 
     for job, score in new_jobs:
         logger.info(

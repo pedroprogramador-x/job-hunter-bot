@@ -41,9 +41,12 @@ _NEGATIVE_WEIGHTS: list[tuple[str, float]] = [
     ("pleno", -3),
     (".net", -3),
     ("c#", -3),
-    ("presencial", -3),
-    ("híbrido", -1),
-    ("hibrido", -1),
+    ("presencial", -4),
+    ("híbrido", -4),
+    ("hibrido", -4),
+    ("hybrid", -4),
+    ("on-site", -3),
+    ("onsite", -3),
     ("3 anos", -3),
     ("4 anos", -3),
     ("são paulo", -2),
@@ -80,6 +83,7 @@ def _score_job(job: dict) -> float:
         job.get("location", ""),
         job.get("workplace_type", ""),
         job.get("job_type", ""),
+        job.get("description", "")[:500],  # primeiros 500 chars da descrição
     ]).lower()
 
     score = 0.0
@@ -89,6 +93,13 @@ def _score_job(job: dict) -> float:
     for keyword, weight in _NEGATIVE_WEIGHTS:
         if keyword in text:
             score += weight  # weight is already negative
+
+    # Penalidade extra quando workplace_type não é remote e o título/localização
+    # também não indicam trabalho remoto (cobre vagas sem keyword explícita)
+    wt = job.get("workplace_type", "").lower()
+    title_loc = (job.get("title", "") + " " + job.get("location", "")).lower()
+    if wt != "remote" and "remoto" not in title_loc and "remote" not in title_loc:
+        score -= 3
 
     return score
 

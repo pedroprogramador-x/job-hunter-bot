@@ -41,6 +41,20 @@ def _clean(text: str) -> str:
     return " ".join(text.split())
 
 
+# O card HTML do LinkedIn não expõe campo de modalidade explícito.
+# Inferimos pelo título e localização: f_WT=2 deveria filtrar remoto mas
+# vaza vagas com localização de cidade (tipicamente híbrido).
+def _infer_workplace_type(title: str, location: str) -> str:
+    t = title.lower()
+    l = location.lower().strip()
+    if "remoto" in t or "remote" in t or "home office" in t:
+        return "remote"
+    # Localização só de país = remoto; cidade específica = suspeito (híbrido)
+    if l in ("brasil", "brazil", "remote", "remoto", ""):
+        return "remote"
+    return "hybrid"
+
+
 def _parse_cards(html: str, seen_ids: set[str]) -> list[dict]:
     """Extrai vagas do HTML retornado pelo LinkedIn, ignorando IDs já vistos."""
     soup = BeautifulSoup(html, "html.parser")
@@ -61,13 +75,16 @@ def _parse_cards(html: str, seen_ids: set[str]) -> list[dict]:
         location_el = card.select_one("span.job-search-card__location")
         time_el     = card.select_one("time")
 
+        title    = _clean(title_el.get_text())    if title_el    else ""
+        location = _clean(location_el.get_text()) if location_el else ""
+
         jobs.append({
             "id":             job_id,
             "source":         "LinkedIn",
-            "title":          _clean(title_el.get_text())    if title_el    else "",
+            "title":          title,
             "company":        _clean(company_el.get_text())  if company_el  else "",
-            "location":       _clean(location_el.get_text()) if location_el else "",
-            "workplace_type": "remote",  # f_WT=2 garante remoto upstream
+            "location":       location,
+            "workplace_type": _infer_workplace_type(title, location),
             "job_type":       "unknown",
             "url":            url,
             "published_at":   time_el.get("datetime", "") if time_el else "",

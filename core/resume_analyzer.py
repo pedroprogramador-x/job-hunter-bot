@@ -34,10 +34,14 @@ def _load_resume() -> str:
 def _build_prompt(jobs: list[tuple[dict, float]]) -> str:
     lines = []
     for job, score in jobs:
-        lines.append(
+        desc = job.get("description", "")
+        line = (
             f"- {job.get('title', '?')} | {job.get('company', '?')} "
             f"| {job.get('source', '?')} | Score: {score:.1f}"
         )
+        if desc:
+            line += f"\n  Descrição: {desc[:300]}"
+        lines.append(line)
     jobs_block = "\n".join(lines) if lines else "(nenhuma vaga)"
 
     resume = _load_resume()
