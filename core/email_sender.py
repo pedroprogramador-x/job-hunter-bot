@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 
 from dotenv import load_dotenv
+from python_http_client.exceptions import HTTPError
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 
@@ -15,6 +16,21 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
+def _mask_email(address: str) -> str:
+    """Mascara o endereço mantendo informação suficiente para diagnóstico."""
+    local, separator, domain = address.partition("@")
+    if not separator:
+        return "***"
+    return f"{local[:2]}***@{domain}"
+
+
+def _response_body(body: object) -> str:
+    """Converte o body retornado pelo SDK em texto legível para o log."""
+    if isinstance(body, bytes):
+        return body.decode("utf-8", errors="replace")
+    return str(body) if body else "<vazio>"
+
+
 def send_jobs_email(
     jobs: list[tuple[dict, float]],
     ai_analysis: str = "",
@@ -23,9 +39,9 @@ def send_jobs_email(
 
     Retorna True se o envio foi bem-sucedido (status 202), False caso contrário.
     """
-    api_key      = os.getenv("SENDGRID_API_KEY", "")
-    from_email   = os.getenv("GMAIL_USER", "")
-    notify_email = os.getenv("NOTIFY_EMAIL", "")
+    api_key      = os.getenv("SENDGRID_API_KEY", "").strip()
+    from_email   = os.getenv("GMAIL_USER", "").strip()
+    notify_email = os.getenv("NOTIFY_EMAIL", "").strip()
 
     if not api_key:
         logger.warning(
@@ -45,36 +61,51 @@ def send_jobs_email(
         )
         return False
 
-    subject   = (
-        f"🎯 {len(jobs)} nova(s) vaga(s) encontrada(s) — "
-        f"{datetime.now().strftime('%d/%m/%Y %H:%M')}"
-    )
-    html_body = render_email(jobs, ai_analysis)
-
-    message = Mail(
-        from_email=from_email,
-        to_emails=notify_email,
-        subject=subject,
-        html_content=html_body,
+    logger.info(
+        "Iniciando envio via SendGrid: remetente=%s destinatário=%s vagas=%d",
+        _mask_email(from_email),
+        _mask_email(notify_email),
+        len(jobs),
     )
 
     try:
+        subject = (
+            f"🎯 {len(jobs)} nova(s) vaga(s) encontrada(s) — "
+            f"{datetime.now().strftime('%d/%m/%Y %H:%M')}"
+        )
+        html_body = render_email(jobs, ai_analysis)
+        message = Mail(
+            from_email=from_email,
+            to_emails=notify_email,
+            subject=subject,
+            html_content=html_body,
+        )
+
         client   = SendGridAPIClient(api_key)
         client.client.timeout = 15
         response = client.send(message)
+        logger.info("SendGrid respondeu: status_code=%d", response.status_code)
         if response.status_code == 202:
-            masked = notify_email[:3] + "***"
             logger.info(
                 "E-mail enviado para %s com %d vaga(s). [SendGrid 202]",
-                masked, len(jobs),
+                _mask_email(notify_email), len(jobs),
             )
             return True
         logger.error(
-            "SendGrid retornou status inesperado %d.",
+            "SendGrid retornou status inesperado %d: body=%s headers=%s",
             response.status_code,
+            _response_body(getattr(response, "body", None)),
+            getattr(response, "headers", None),
         )
-    except Exception as exc:
-        logger.error("Erro ao enviar e-mail via SendGrid: %s", exc)
+    except HTTPError as exc:
+        logger.exception(
+            "Erro HTTP ao enviar e-mail via SendGrid: status_code=%s body=%s headers=%s",
+            exc.status_code,
+            _response_body(exc.body),
+            exc.headers,
+        )
+    except Exception:
+        logger.exception("Erro inesperado ao montar ou enviar e-mail via SendGrid")
 
     return False
 
