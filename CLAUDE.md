@@ -3,7 +3,7 @@
 Sistema Python em produção no Railway que monitora vagas de TI de hora em hora e envia email com análise de IA personalizada.
 
 ## Stack
-Python 3.11 · APScheduler · Requests · BeautifulSoup4 · SendGrid · Gemini API (gemini-flash-lite-latest) · Railway (worker + volume /data)
+Python 3.11 · APScheduler · Requests · BeautifulSoup4 · Brevo · Gemini API (gemini-flash-lite-latest) · Railway (worker + volume /data)
 
 ## Estrutura
 - `main.py` — orquestrador + APScheduler + _ensure_resume()
@@ -14,7 +14,7 @@ Python 3.11 · APScheduler · Requests · BeautifulSoup4 · SendGrid · Gemini A
 - `core/filter_engine.py` — scoring por keyword, min_score=3.0
 - `core/state_manager.py` — seen_jobs.json em /data, write atômico via os.replace()
 - `core/resume_analyzer.py` — Gemini API, lê /data/resume.txt, degrada graciosamente, timeout 30s
-- `core/email_sender.py` — SendGrid API, timeout 15s, destinatário mascarado nos logs
+- `core/email_sender.py` — API transacional da Brevo via HTTP, timeout 15s, remetente e destinatário mascarados nos logs
 - `templates/email_template.py` — HTML com cards por vaga, html.escape() em todos os campos externos
 
 ## Pipeline por ciclo
@@ -23,7 +23,7 @@ Python 3.11 · APScheduler · Requests · BeautifulSoup4 · SendGrid · Gemini A
 3. State manager remove vagas já notificadas
 4. Se zero novas → encerra sem email
 5. Gemini analisa vagas comparando com currículo do Pedro (/data/resume.txt)
-6. SendGrid envia email para pedrophbezerra@gmail.com
+6. Brevo envia email para pedrophbezerra@gmail.com
 7. Estado salvo APENAS se email enviado com sucesso
 
 ## Regras obrigatórias
@@ -35,7 +35,7 @@ Python 3.11 · APScheduler · Requests · BeautifulSoup4 · SendGrid · Gemini A
 - Commit em português, mensagens descritivas
 
 ## Variáveis de ambiente
-GMAIL_USER, GMAIL_APP_PASSWORD, NOTIFY_EMAIL, GEMINI_API_KEY, SENDGRID_API_KEY, DATA_DIR=/data, SCHEDULE_INTERVAL_HOURS=1
+GMAIL_USER, GMAIL_APP_PASSWORD, NOTIFY_EMAIL, GEMINI_API_KEY, BREVO_API_KEY, DATA_DIR=/data, SCHEDULE_INTERVAL_HOURS=1
 
 ## Deploy
 Railway · projeto: sweet-emotion · serviço: worker · volume: worker-volume montado em /data

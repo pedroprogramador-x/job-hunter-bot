@@ -1,19 +1,21 @@
-# Módulo de envio de e-mail via SendGrid API
+# Módulo de envio de e-mail via API transacional da Brevo
 
 import logging
 import os
+import traceback
 from datetime import datetime
 
+import requests
 from dotenv import load_dotenv
-from python_http_client.exceptions import HTTPError
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
 
 from templates.email_template import render_email
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+_BREVO_API_URL = "https://api.brevo.com/v3/smtp/email"
+_REQUEST_TIMEOUT_SECONDS = 15
 
 
 def _mask_email(address: str) -> str:
@@ -24,36 +26,41 @@ def _mask_email(address: str) -> str:
     return f"{local[:2]}***@{domain}"
 
 
-def _response_body(body: object) -> str:
-    """Converte o body retornado pelo SDK em texto legível para o log."""
-    if isinstance(body, bytes):
-        return body.decode("utf-8", errors="replace")
-    return str(body) if body else "<vazio>"
+def _safe_log_text(value: object, api_key: str) -> str:
+    """Converte valores para log e remove a chave da API, se ela aparecer."""
+    if isinstance(value, bytes):
+        text = value.decode("utf-8", errors="replace")
+    else:
+        text = str(value) if value else "<vazio>"
+    return text.replace(api_key, "[REDACTED]") if api_key else text
+
+
+def _log_exception(message: str, api_key: str) -> None:
+    """Registra o traceback completo sem permitir vazamento da chave da API."""
+    logger.error("%s\n%s", message, _safe_log_text(traceback.format_exc(), api_key))
 
 
 def send_jobs_email(
     jobs: list[tuple[dict, float]],
     ai_analysis: str = "",
 ) -> bool:
-    """Envia e-mail com as vagas encontradas via SendGrid API.
+    """Envia e-mail com as vagas encontradas via API transacional da Brevo.
 
-    Retorna True se o envio foi bem-sucedido (status 202), False caso contrário.
+    Retorna True se o envio foi bem-sucedido (status 201), False caso contrário.
     """
-    api_key      = os.getenv("SENDGRID_API_KEY", "").strip()
-    from_email   = os.getenv("GMAIL_USER", "").strip()
+    api_key = os.getenv("BREVO_API_KEY", "").strip()
+    from_email = os.getenv("GMAIL_USER", "").strip()
     notify_email = os.getenv("NOTIFY_EMAIL", "").strip()
 
-    if not api_key:
-        logger.warning(
-            "SENDGRID_API_KEY não configurada — envio de e-mail desativado."
+    missing = [
+        variable
+        for variable, value in (
+            ("BREVO_API_KEY", api_key),
+            ("GMAIL_USER", from_email),
+            ("NOTIFY_EMAIL", notify_email),
         )
-        return False
-
-    missing = [v for v, val in [
-        ("GMAIL_USER", from_email),
-        ("NOTIFY_EMAIL", notify_email),
-    ] if not val]
-
+        if not value
+    ]
     if missing:
         logger.error(
             "Variáveis de ambiente obrigatórias não configuradas: %s",
@@ -62,7 +69,7 @@ def send_jobs_email(
         return False
 
     logger.info(
-        "Iniciando envio via SendGrid: remetente=%s destinatário=%s vagas=%d",
+        "Iniciando envio via Brevo: remetente=%s destinatário=%s vagas=%d",
         _mask_email(from_email),
         _mask_email(notify_email),
         len(jobs),
@@ -71,47 +78,52 @@ def send_jobs_email(
     try:
         subject = (
             f"🎯 {len(jobs)} nova(s) vaga(s) encontrada(s) — "
-            f"{datetime.now().strftime('%d/%m/%Y %H:%M')}"
+            f"{datetime.now().strftime('%d/%m/%Y %H:%M')}"  # noqa: DTZ005
         )
         html_body = render_email(jobs, ai_analysis)
-        message = Mail(
-            from_email=from_email,
-            to_emails=notify_email,
-            subject=subject,
-            html_content=html_body,
+        payload = {
+            "sender": {"name": "Job Hunter Bot", "email": from_email},
+            "to": [{"email": notify_email}],
+            "subject": subject,
+            "htmlContent": html_body,
+        }
+        response = requests.post(
+            _BREVO_API_URL,
+            headers={
+                "accept": "application/json",
+                "api-key": api_key,
+                "content-type": "application/json",
+            },
+            json=payload,
+            timeout=_REQUEST_TIMEOUT_SECONDS,
         )
+    except requests.RequestException:
+        _log_exception("Erro de rede ao enviar e-mail via Brevo", api_key)
+        return False
+    except Exception:  # noqa: BLE001 - preserva o contrato booleano do pipeline
+        _log_exception("Erro inesperado ao montar ou enviar e-mail via Brevo", api_key)
+        return False
 
-        client   = SendGridAPIClient(api_key)
-        client.client.timeout = 15
-        response = client.send(message)
-        logger.info("SendGrid respondeu: status_code=%d", response.status_code)
-        if response.status_code == 202:
-            logger.info(
-                "E-mail enviado para %s com %d vaga(s). [SendGrid 202]",
-                _mask_email(notify_email), len(jobs),
-            )
-            return True
-        logger.error(
-            "SendGrid retornou status inesperado %d: body=%s headers=%s",
-            response.status_code,
-            _response_body(getattr(response, "body", None)),
-            getattr(response, "headers", None),
+    logger.info("Brevo respondeu: status_code=%d", response.status_code)
+    if response.status_code == 201:
+        logger.info(
+            "E-mail enviado para %s com %d vaga(s). [Brevo 201]",
+            _mask_email(notify_email),
+            len(jobs),
         )
-    except HTTPError as exc:
-        logger.exception(
-            "Erro HTTP ao enviar e-mail via SendGrid: status_code=%s body=%s headers=%s",
-            exc.status_code,
-            _response_body(exc.body),
-            exc.headers,
-        )
-    except Exception:
-        logger.exception("Erro inesperado ao montar ou enviar e-mail via SendGrid")
+        return True
 
+    logger.error(
+        "Brevo retornou erro HTTP: status_code=%d body=%s",
+        response.status_code,
+        _safe_log_text(response.text, api_key),
+    )
     return False
 
 
 if __name__ == "__main__":
     import sys
+
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 

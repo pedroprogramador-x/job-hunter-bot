@@ -25,7 +25,7 @@ O bot executa um pipeline completo a cada intervalo configurado:
 🎯 Filtra       → Pontua cada vaga por palavras-chave (python, remoto, júnior, etc.)
 🔁 Deduplica    → Compara com vagas já notificadas, mantém só as novas
 🤖 Analisa      → Envia para o Gemini: qual vaga tem melhor fit com seu currículo
-📧 Envia        → Dispara e-mail HTML formatado via SendGrid com cards por fonte
+📧 Envia        → Dispara e-mail HTML pela API transacional da Brevo com cards por fonte
 💾 Salva estado → Marca as vagas notificadas para não repetir no próximo ciclo
 ```
 
@@ -53,7 +53,7 @@ O estado só é salvo **após** a confirmação de envio do e-mail. Se o envio f
 | **Requests** | Chamadas HTTP para APIs e scraping |
 | **BeautifulSoup4** | Parsing de HTML do Programathor |
 | **google-genai** | Cliente oficial da Gemini API (análise de vagas) |
-| **SendGrid** | Envio de e-mail via API (sem SMTP) |
+| **Brevo** | Envio de e-mail pela API transacional (sem SMTP) |
 | **python-dotenv** | Carregamento de variáveis de ambiente |
 | **Railway** | Plataforma de deploy (worker process + volume) |
 
@@ -81,7 +81,7 @@ job-hunter-bot/
 │   ├── filter_engine.py         # Scoring por palavras-chave e pesos
 │   ├── state_manager.py         # Persistência de vagas já notificadas
 │   ├── resume_analyzer.py       # Análise de fit com Gemini API
-│   └── email_sender.py          # Envio de e-mail via SendGrid
+│   └── email_sender.py          # Envio de e-mail via API transacional da Brevo
 │
 ├── templates/
 │   └── email_template.py        # Template HTML do e-mail (CSS inline)
@@ -100,10 +100,10 @@ Copie `.env.example` para `.env` e preencha:
 
 | Variável | Descrição | Obrigatória |
 |---|---|---|
-| `GMAIL_USER` | E-mail remetente (verificado no SendGrid) | ✅ |
+| `GMAIL_USER` | E-mail remetente (verificado na Brevo) | ✅ |
 | `GMAIL_APP_PASSWORD` | Não utilizado atualmente (legado SMTP) | ❌ |
 | `NOTIFY_EMAIL` | E-mail que recebe as notificações | ✅ |
-| `SENDGRID_API_KEY` | Chave da API do SendGrid | ✅ |
+| `BREVO_API_KEY` | Chave da API transacional da Brevo | ✅ |
 | `GEMINI_API_KEY` | Chave da API do Google Gemini (AI Studio) | ✅ |
 | `DATA_DIR` | Diretório de dados persistentes (padrão: `/data`) | ❌ |
 | `SCHEDULE_INTERVAL_HOURS` | Intervalo entre execuções em horas (padrão: `1`) | ❌ |
@@ -158,7 +158,7 @@ O projeto está configurado para rodar como **worker process** (sem porta HTTP) 
 ## Decisões técnicas
 
 **Estado salvo só após e-mail confirmado**
-O `seen_jobs.json` é atualizado apenas quando o SendGrid retorna status 202. Se o envio falhar por qualquer motivo, as mesmas vagas reaparecem no próximo ciclo e o bot tenta novamente — sem perda silenciosa de notificações.
+O `seen_jobs.json` é atualizado apenas quando a Brevo retorna status 201. Se o envio falhar por qualquer motivo, as mesmas vagas reaparecem no próximo ciclo e o bot tenta novamente — sem perda silenciosa de notificações.
 
 **Write atômico no state manager**
 A escrita no `seen_jobs.json` usa um arquivo temporário (`.tmp`) com `os.replace()` ao final. Isso evita corrupção do estado em caso de crash ou falha de disco no meio da escrita.
