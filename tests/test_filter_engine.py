@@ -255,6 +255,127 @@ class FilterEngineTests(unittest.TestCase):
         self.assertFalse(is_job_blocked(job, final=False))
         self.assertTrue(is_job_blocked(job, final=True))
 
+    def test_clear_non_technical_internships_are_blocked(self) -> None:
+        titles = [
+            "Estagiário Administrativo - Maceió",
+            "Estágio em Administração - Maceió",
+            "Estágio RH - Remoto",
+            "Estágio Marketing - Maceió",
+            "Estágio Financeiro - Maceió",
+        ]
+        for title in titles:
+            with self.subTest(title=title):
+                self.assert_blocked(_job(title, location="Maceió, AL"))
+
+    def test_target_technical_entry_level_titles_still_pass(self) -> None:
+        jobs = [
+            _job(
+                "Estágio Desenvolvimento de Software - Maceió",
+                location="Maceió, AL",
+                workplace_type="on-site",
+            ),
+            _job(
+                "Estágio Backend - Maceió",
+                location="Maceió, AL",
+                workplace_type="on-site",
+            ),
+            _job("QA Junior"),
+            _job("Analista de Automação de Testes Junior"),
+        ]
+        for job in jobs:
+            with self.subTest(title=job["title"]):
+                self.assert_passes(job)
+
+    def test_generic_it_internship_needs_strong_description_signal(self) -> None:
+        technical = _job(
+            "Estágio TI - Maceió",
+            location="Maceió, AL",
+            workplace_type="on-site",
+            description="Desenvolvimento com programação e APIs REST.",
+        )
+        administrative = _job(
+            "Estágio TI - Maceió",
+            location="Maceió, AL",
+            workplace_type="on-site",
+            description="Atualização de sistemas internos, planilhas e bases de dados.",
+        )
+        dotted_ti = _job(
+            "Estágio T.I. - Maceió",
+            location="Maceió, AL",
+            workplace_type="on-site",
+            description="Programação Python e integração com APIs.",
+        )
+        ti_inside_word = _job(
+            "Estágio Garantia da Qualidade - Maceió",
+            location="Maceió, AL",
+            workplace_type="on-site",
+            description="Planilhas e atendimento administrativo.",
+        )
+
+        self.assert_passes(technical)
+        self.assert_passes(dotted_ti)
+        self.assert_blocked(administrative)
+        self.assert_blocked(ti_inside_word)
+
+    def test_ambiguous_operations_title_requires_strong_technical_signal(self) -> None:
+        technical = _job(
+            "Estágio Operações de TI",
+            description="Automação de rotinas e consultas SQL.",
+        )
+        administrative = _job(
+            "Estágio Operações Administrativas",
+            description="Planilhas, relatórios e atendimento interno.",
+        )
+
+        self.assert_passes(technical)
+        self.assert_blocked(administrative)
+
+    def test_real_non_technical_false_positives_are_blocked(self) -> None:
+        origem = _job(
+            "Estagiário Administrativo - Polo Alagoas",
+            location="Pilar, AL",
+            workplace_type="on-site",
+            description=(
+                "Integração energética. Apoiar na atualização de sistemas internos "
+                "e bases de dados, planilhas, relatórios e atendimento interno."
+            ),
+        )
+        jobbol = _job(
+            "Estagiário na área Administrativa",
+            location="Maceió, AL",
+            workplace_type="on-site",
+            description=(
+                "Organizar documentos, apoiar informações em sistemas internos "
+                "e elaborar relatórios administrativos."
+            ),
+        )
+        generic_operations = _job(
+            "Estagiário(a) Superior - Centro de Operações",
+            location="Maceió, AL",
+            workplace_type="on-site",
+            description=(
+                "Soluções que impulsionam o desenvolvimento. Atualizações de dados "
+                "em sistemas corporativos e relatórios gerenciais."
+            ),
+        )
+        distributed_generation = _job(
+            "Estagiário(a) Superior - Geração Distribuída",
+            location="Maceió, AL",
+            workplace_type="on-site",
+            description=(
+                "Soluções que impulsionam o desenvolvimento. Tratamento de dados, "
+                "conexão de sistemas elétricos e planilhas."
+            ),
+        )
+
+        self.assertEqual(_score_job(origem), 17.0)
+        self.assertEqual(_score_job(jobbol), 14.0)
+        self.assertEqual(_score_job(generic_operations), 14.0)
+        self.assertEqual(_score_job(distributed_generation), 14.0)
+        for job in (origem, jobbol, generic_operations, distributed_generation):
+            with self.subTest(title=job["title"]):
+                self.assert_blocked(job)
+
 
 if __name__ == "__main__":
     unittest.main()

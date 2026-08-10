@@ -65,24 +65,39 @@ _TECH_CATEGORIES: list[tuple[re.Pattern[str], float]] = [
     (re.compile(r"\b(?:git|docker|cloud|aws|azure|gcp)\b"), 1.0),
 ]
 
-_TECHNICAL_RELEVANCE_PATTERN = re.compile(
-    r"\b(?:python|java|javascript|typescript|backend|back\s*end|fastapi|django|"
-    r"flask|api(?:s)?|rest|integracao|integracoes|automacao|rpa|programacao|"
-    r"programador|desenvolvedor|developer|software\s+engineer|"
-    r"desenvolvimento\s+de\s+software|engenharia\s+de\s+software|full\s*stack|"
-    r"qa\s+automation|testes?\s+automatizados?|sistemas?|dados|data|etl|sql|"
-    r"postgresql|scraping|scripts?)\b"
+_TECH_TITLE_SIGNAL_PATTERN = re.compile(
+    r"\b(?:desenvolvimento\s+(?:de\s+)?(?:software|sistemas?|aplicacoes?|web)|"
+    r"desenvolvedor(?:a)?|developer|programacao|programador(?:a)?|software|"
+    r"backend|back\s*end|frontend|front\s*end|full\s*stack|python|java|"
+    r"javascript|typescript|react|node(?:\.js)?|fastapi|django|flask|api(?:s)?|"
+    r"rest|sql|postgres(?:ql)?|dados|data|etl|automacao|rpa|qa|testes?|"
+    r"sistemas?|engenharia\s+de\s+software|scraping|scripts?)\b"
 )
+_DESCRIPTION_TECH_SIGNAL_PATTERN = re.compile(
+    r"\b(?:desenvolvimento\s+(?:de\s+)?(?:software|sistemas?|aplicacoes?|web|"
+    r"api(?:s)?|backend|frontend)|desenvolvedor(?:a)?|developer|programacao|"
+    r"programador(?:a)?|software|backend|back\s*end|frontend|front\s*end|"
+    r"full\s*stack|python|java|javascript|typescript|react|node(?:\.js)?|"
+    r"fastapi|django|flask|api(?:s)?|rest|sql|postgres(?:ql)?|etl|automacao|"
+    r"rpa|qa|testes?\s+automatizados?|engenharia\s+de\s+software|scraping|"
+    r"scripts?)\b"
+)
+_CLEAR_NON_TECH_TITLE_PATTERN = re.compile(
+    r"\b(?:administrativ[oa]|administracao|recursos\s+humanos|recrutamento|"
+    r"comercial|vendas?|sdr|marketing|financeir[oa]|financas?|contabilidade|"
+    r"contabil|juridic[oa]|designer\s+grafico|operador\s+de\s+caixa)\b|"
+    r"(?<!\w)rh(?!\w)"
+)
+_AMBIGUOUS_NON_TECH_TITLE_PATTERN = re.compile(
+    r"\b(?:operacoes?|atendimento|suporte|support)\b"
+)
+_GENERIC_TI_TITLE_PATTERN = re.compile(r"(?<!\w)t\.?\s*i\.?(?!\w)")
 _PROGRAMMING_PATTERN = re.compile(
     r"\b(?:python|java|javascript|typescript|programacao|programador|"
     r"desenvolvedor|developer|software|api(?:s)?|automacao|integracao|"
     r"integracoes|scripts?)\b"
 )
 _SUPPORT_PATTERN = re.compile(r"\b(?:suporte|support)\b")
-_NON_TECH_TITLE_PATTERN = re.compile(
-    r"\b(?:recrutamento|recursos\s+humanos|vendas|comercial|sdr|financeiro|"
-    r"contabil|marketing|designer\s+grafico|operador\s+de\s+caixa)\b"
-)
 
 _REQUIRED_EXPERIENCE_PATTERNS = [
     re.compile(pattern)
@@ -172,19 +187,35 @@ def _required_experience_years(description: str) -> int | None:
     return max(years) if years else None
 
 
+def _has_clear_non_technical_title(title: str) -> bool:
+    return bool(_CLEAR_NON_TECH_TITLE_PATTERN.search(title)) and not bool(
+        _TECH_TITLE_SIGNAL_PATTERN.search(title)
+    )
+
+
 def _has_technical_relevance(job: dict) -> bool:
     title = normalize_title(job)
     description = normalize_description(job)
-    if _NON_TECH_TITLE_PATTERN.search(title) and not _TECHNICAL_RELEVANCE_PATTERN.search(
-        title
-    ):
+    title_signal = bool(_TECH_TITLE_SIGNAL_PATTERN.search(title))
+    description_signal = bool(_DESCRIPTION_TECH_SIGNAL_PATTERN.search(description))
+
+    if _has_clear_non_technical_title(title):
         return False
-    return bool(_TECHNICAL_RELEVANCE_PATTERN.search(f"{title} {description}"))
+    # "TI" é detectado com limites seguros, mas em título genérico precisa ser
+    # confirmado por programação, API ou outro sinal forte na descrição.
+    if _GENERIC_TI_TITLE_PATTERN.search(title) and not title_signal:
+        return description_signal
+    if _AMBIGUOUS_NON_TECH_TITLE_PATTERN.search(title):
+        return title_signal or description_signal
+    return title_signal or description_signal
 
 
 def is_job_blocked(job: dict, *, final: bool = True) -> bool:
     """Aplica hard blocks de título, localização e requisitos obrigatórios."""
-    if _has_incompatible_seniority(normalize_title(job)):
+    title = normalize_title(job)
+    if _has_incompatible_seniority(title):
+        return True
+    if _has_clear_non_technical_title(title):
         return True
     if _has_incompatible_location(job):
         return True
