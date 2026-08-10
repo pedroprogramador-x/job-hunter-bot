@@ -63,7 +63,7 @@ Responda em HTML simples (sem markdown, sem ```html). Máximo 250 palavras. Seja
     # Fallback: sem currículo
     return f"""Você é um assistente de carreira especializado em tecnologia.
 
-Analise as seguintes vagas e forneça sugestões práticas e diretas para um candidato a estágio ou vaga júnior remota em back-end ou full-stack com Python.
+Analise as seguintes vagas e forneça sugestões práticas e diretas para um estudante de Engenharia de Software que busca estágio ou vaga júnior. Priorize backend Python, APIs, automação e integrações, mas considere também oportunidades de entrada com JavaScript ou Java, remotas no Brasil ou localizadas em Maceió/AL.
 
 VAGAS ENCONTRADAS:
 {jobs_block}

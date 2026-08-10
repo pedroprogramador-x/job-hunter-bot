@@ -7,24 +7,24 @@ Python 3.11 · APScheduler · Requests · BeautifulSoup4 · Brevo · Gemini API 
 
 ## Estrutura
 - `main.py` — orquestrador + APScheduler + _ensure_resume()
-- `scrapers/gupy_scraper.py` — API employability-portal.gupy.io, 8 termos de busca, ~72 vagas
-- `scrapers/linkedin_scraper.py` — Guest API pública, 5 termos de busca, ~44 vagas
+- `scrapers/gupy_scraper.py` — API employability-portal.gupy.io, buscas remotas + Alagoas
+- `scrapers/linkedin_scraper.py` — Guest API pública, buscas remotas + Maceió
 - `scrapers/programathor_scraper.py` — HTML scraping (bloqueado no Railway por Cloudflare)
 - `scrapers/indeed_scraper.py` — RSS (bloqueado por Cloudflare)
-- `core/filter_engine.py` — scoring por keyword, min_score=3.0
+- `core/filter_engine.py` — normalização, hard blocks e scoring para estágio/júnior, min_score=10.0
 - `core/state_manager.py` — seen_jobs.json em /data, write atômico via os.replace()
 - `core/resume_analyzer.py` — Gemini API, lê /data/resume.txt, degrada graciosamente, timeout 30s
 - `core/email_sender.py` — API transacional da Brevo via HTTP, timeout 15s, remetente e destinatário mascarados nos logs
 - `templates/email_template.py` — HTML com cards por vaga, html.escape() em todos os campos externos
 
 ## Pipeline por ciclo
-1. Scrapers Gupy + LinkedIn (~116 vagas) com isolamento de falha por termo
-2. Filtro de relevância min_score=3.0
+1. Scrapers Gupy + LinkedIn com buscas remotas e locais, isolamento de falha por termo
+2. Hard blocks + scoring inicial min_score=10.0
 3. State manager remove vagas já notificadas
 4. Se zero novas → encerra sem email
-5. Gemini analisa vagas comparando com currículo do Pedro (/data/resume.txt)
-6. Brevo envia email para pedrophbezerra@gmail.com
-7. Estado salvo APENAS se email enviado com sucesso
+5. Top 40 recebem descrição completa; hard blocks finais + ranking top 20
+6. Gemini analisa vagas comparando com currículo do Pedro (/data/resume.txt)
+7. Brevo envia email; estado salvo APENAS se o envio tiver sucesso
 
 ## Regras obrigatórias
 - Sempre degradar graciosamente — falha em um componente não para o pipeline
@@ -43,4 +43,4 @@ Redeploy automático via push no GitHub (pedroprogramador-x/job-hunter-bot)
 
 ## Candidato
 Pedro Henrique · Engenharia de Software (Estácio, cursando) · Maceió, AL
-Objetivo: estágio ou júnior remoto em back-end ou full-stack
+Objetivo: estágio ou júnior em desenvolvimento, priorizando backend Python, APIs, automação e integrações; remoto Brasil ou Maceió/AL

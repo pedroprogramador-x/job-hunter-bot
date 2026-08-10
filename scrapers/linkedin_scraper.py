@@ -7,17 +7,55 @@ from bs4 import BeautifulSoup
 logger = logging.getLogger(__name__)
 
 # f_WT=2 → remoto | f_E=1,2 → estágio e júnior (entry/associate)
-_BASE_URL = (
-    "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
-    "?location=Brazil&f_WT=2&f_E=1%2C2&start=0"
-)
-_SEARCH_TERMS = [
+_API_URL = "https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search"
+_REMOTE_SEARCH_TERMS = [
     "python junior",
     "backend python",
     "fastapi developer",
     "estagio desenvolvimento",
     "automacao python",
+    "estagio desenvolvimento de software",
+    "estagio backend",
+    "estagio python",
+    "estagio engenharia de software",
+    "estagio automacao",
+    "estagio integracoes api",
+    "desenvolvedor backend junior",
+    "desenvolvedor software junior",
+    "software engineer junior",
+    "backend engineer junior",
+    "java junior",
+    "javascript junior",
+    "full stack junior",
+    "qa automation junior",
+    "rpa junior",
+    "etl junior",
 ]
+_MACEIO_SEARCH_TERMS = [
+    "estagio desenvolvimento de software",
+    "estagio backend",
+    "estagio python",
+    "estagio engenharia de software",
+    "estagio automacao",
+    "estagio integracoes api",
+    "desenvolvedor backend junior",
+    "desenvolvedor software junior",
+    "software engineer junior",
+    "backend engineer junior",
+    "java junior",
+    "javascript junior",
+    "full stack junior",
+    "qa automation junior",
+    "rpa junior",
+    "etl junior",
+]
+_REMOTE_PARAMS = {"location": "Brazil", "f_WT": "2", "f_E": "1,2", "start": 0}
+_MACEIO_PARAMS = {
+    # Consulta validada no endpoint real; omitir f_WT permite vagas locais.
+    "location": "Maceió, Alagoas, Brasil",
+    "f_E": "1,2",
+    "start": 0,
+}
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -93,11 +131,11 @@ def _parse_cards(html: str, seen_ids: set[str]) -> list[dict]:
     return jobs
 
 
-def _fetch_term(term: str) -> str | None:
+def _fetch_term(term: str, base_params: dict) -> str | None:
     """Faz a requisição para um termo. Retorna o HTML ou None em caso de erro."""
-    url = f"{_BASE_URL}&keywords={requests.utils.quote(term)}"
+    params = {**base_params, "keywords": term}
     try:
-        response = requests.get(url, headers=_HEADERS, timeout=15)
+        response = requests.get(_API_URL, params=params, headers=_HEADERS, timeout=15)
         if response.status_code in (429, 999):
             logger.warning("LinkedIn bloqueou o acesso (%d) para '%s'.", response.status_code, term)
             return None
@@ -111,9 +149,14 @@ def _fetch_term(term: str) -> str | None:
 def fetch_jobs() -> list[dict]:
     seen_ids: set[str] = set()
     jobs: list[dict] = []
+    searches = [
+        (term, _REMOTE_PARAMS) for term in _REMOTE_SEARCH_TERMS
+    ] + [
+        (term, _MACEIO_PARAMS) for term in _MACEIO_SEARCH_TERMS
+    ]
 
-    for term in _SEARCH_TERMS:
-        html = _fetch_term(term)
+    for term, search_params in searches:
+        html = _fetch_term(term, search_params)
         if not html:
             continue
         new = _parse_cards(html, seen_ids)
@@ -121,7 +164,7 @@ def fetch_jobs() -> list[dict]:
             logger.warning("LinkedIn: nenhum card encontrado para '%s'.", term)
         jobs.extend(new)
 
-    logger.info("LinkedIn: %d vagas únicas em %d termos.", len(jobs), len(_SEARCH_TERMS))
+    logger.info("LinkedIn: %d vagas únicas em %d buscas.", len(jobs), len(searches))
     return jobs
 
 

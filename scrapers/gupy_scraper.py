@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timezone
+
 import requests
 
 logger = logging.getLogger(__name__)
@@ -12,7 +13,7 @@ _HEADERS = {
     "Referer": "https://portal.gupy.io/",
     "Origin": "https://portal.gupy.io",
 }
-_SEARCH_TERMS = [
+_REMOTE_SEARCH_TERMS = [
     "python",
     "fastapi",
     "backend",
@@ -21,9 +22,50 @@ _SEARCH_TERMS = [
     "automacao",
     "django",
     "flask",
+    "estagio desenvolvimento de software",
+    "estagio backend",
+    "estagio python",
+    "estagio engenharia de software",
+    "estagio automacao",
+    "estagio integracoes api",
+    "desenvolvedor backend junior",
+    "desenvolvedor software junior",
+    "software engineer junior",
+    "backend engineer junior",
+    "java junior",
+    "javascript junior",
+    "full stack junior",
+    "qa automation junior",
+    "rpa junior",
+    "etl junior",
 ]
-_BASE_PARAMS = {
+_MACEIO_SEARCH_TERMS = [
+    "estagio desenvolvimento de software",
+    "estagio backend",
+    "estagio python",
+    "estagio engenharia de software",
+    "estagio automacao",
+    "estagio integracoes api",
+    "desenvolvedor backend junior",
+    "desenvolvedor software junior",
+    "software engineer junior",
+    "backend engineer junior",
+    "java junior",
+    "javascript junior",
+    "full stack junior",
+    "qa automation junior",
+    "rpa junior",
+    "etl junior",
+]
+_REMOTE_PARAMS = {
     "workplaceType": "remote",
+    "limit": 20,
+    "sortBy": "publishedDate",
+}
+_MACEIO_PARAMS = {
+    # Validado contra a API real: state=Alagoas filtra corretamente;
+    # city[] retorna HTTP 400 e, por isso, não é enviado.
+    "state": "Alagoas",
     "limit": 20,
     "sortBy": "publishedDate",
 }
@@ -35,7 +77,11 @@ def _is_application_open(job: dict) -> bool:
         return True
     try:
         dl = datetime.fromisoformat(deadline)
-        now = datetime.now(tz=timezone.utc) if dl.tzinfo else datetime.now()
+        now = (
+            datetime.now(tz=timezone.utc)
+            if dl.tzinfo
+            else datetime.now()  # noqa: DTZ005 - compara com data ingênua da API
+        )
         return dl >= now
     except ValueError:
         return True
@@ -63,9 +109,9 @@ def _parse_job(job: dict) -> dict:
     }
 
 
-def _fetch_term(term: str) -> list[dict]:
+def _fetch_term(term: str, base_params: dict) -> list[dict]:
     """Busca vagas para um único termo. Retorna lista vazia em caso de erro."""
-    params = {**_BASE_PARAMS, "jobName": term}
+    params = {**base_params, "jobName": term}
     try:
         response = requests.get(_API_URL, params=params, headers=_HEADERS, timeout=15)
         response.raise_for_status()
@@ -80,16 +126,20 @@ def _fetch_term(term: str) -> list[dict]:
 
 
 def fetch_jobs(params: dict | None = None) -> list[dict]:
-    terms = _SEARCH_TERMS
-    # Permite sobrescrever tudo via params legado (retrocompatibilidade)
+    searches = [
+        (term, _REMOTE_PARAMS) for term in _REMOTE_SEARCH_TERMS
+    ] + [
+        (term, _MACEIO_PARAMS) for term in _MACEIO_SEARCH_TERMS
+    ]
+    # Permite sobrescrever o termo via params legado (retrocompatibilidade)
     if params and "jobName" in params:
-        terms = [params["jobName"]]
+        searches = [(params["jobName"], {**_REMOTE_PARAMS, **params})]
 
     seen_ids: set[str] = set()
     jobs: list[dict] = []
 
-    for term in terms:
-        for raw in _fetch_term(term):
+    for term, search_params in searches:
+        for raw in _fetch_term(term, search_params):
             parsed = _parse_job(raw)
             if not parsed["id"] or parsed["id"] == "gupy_":
                 continue
@@ -97,7 +147,7 @@ def fetch_jobs(params: dict | None = None) -> list[dict]:
                 seen_ids.add(parsed["id"])
                 jobs.append(parsed)
 
-    logger.info("Gupy: %d vagas únicas em %d termos", len(jobs), len(terms))
+    logger.info("Gupy: %d vagas únicas em %d buscas", len(jobs), len(searches))
     return jobs
 
 

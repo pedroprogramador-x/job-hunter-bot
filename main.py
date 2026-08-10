@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+from pathlib import Path
 
 from apscheduler.schedulers.blocking import BlockingScheduler
 from dotenv import load_dotenv
@@ -20,14 +21,14 @@ logging.getLogger("apscheduler").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # ── Importações dos módulos do bot ────────────────────────────────────────────
-from scrapers.gupy_scraper        import fetch_jobs as gupy_fetch
-from scrapers.linkedin_scraper    import fetch_jobs as linkedin_fetch
+from core.description_fetcher import fetch_descriptions
+from core.email_sender import send_jobs_email
+from core.filter_engine import filter_jobs
+from core.resume_analyzer import analyze_jobs
+from core.state_manager import filter_new_jobs, save_seen_ids
+from scrapers.gupy_scraper import fetch_jobs as gupy_fetch
+from scrapers.linkedin_scraper import fetch_jobs as linkedin_fetch
 from scrapers.programathor_scraper import fetch_jobs as programathor_fetch
-from core.filter_engine           import filter_jobs
-from core.state_manager           import filter_new_jobs, save_seen_ids
-from core.description_fetcher     import fetch_descriptions
-from core.resume_analyzer         import analyze_jobs
-from core.email_sender            import send_jobs_email
 
 _SEP = "─" * 60
 
@@ -41,7 +42,7 @@ def _safe_fetch(name: str, fetch_fn) -> list[dict]:
         else:
             logger.info("%-14s  ✔  %d vaga(s) coletada(s)", name, len(jobs))
         return jobs
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - isola falhas dos scrapers
         logger.error("%-14s  ✘  erro inesperado: %s", name, exc)
         return []
 
@@ -68,8 +69,8 @@ def run_pipeline() -> None:
         return
 
     # ── 2. Filtro de relevância ───────────────────────────────────────────────
-    logger.info("[ 2/7 ] Aplicando filtro de relevância (min_score=3.0)...")
-    scored_jobs = filter_jobs(all_jobs, min_score=3.0)
+    logger.info("[ 2/7 ] Aplicando filtro inicial (min_score=10.0)...")
+    scored_jobs = filter_jobs(all_jobs, min_score=10.0, final=False)
     logger.info(
         "        %d/%d vaga(s) passaram no filtro",
         len(scored_jobs), len(all_jobs),
@@ -102,20 +103,28 @@ def run_pipeline() -> None:
         logger.info(_SEP)
         return
 
-    # ── 4b. Limita a top 20 por score ─────────────────────────────────────────
-    _LIMIT = 20
+    # ── 4b. Seleciona candidatas para enriquecimento ──────────────────────────
+    _ENRICHMENT_LIMIT = 40
     new_jobs.sort(key=lambda t: t[1], reverse=True)
-    if len(new_jobs) > _LIMIT:
-        discarded = len(new_jobs) - _LIMIT
-        new_jobs = new_jobs[:_LIMIT]
-        logger.info("        %d vaga(s) descartadas por limite de %d", discarded, _LIMIT)
+    if len(new_jobs) > _ENRICHMENT_LIMIT:
+        postponed = len(new_jobs) - _ENRICHMENT_LIMIT
+        new_jobs = new_jobs[:_ENRICHMENT_LIMIT]
+        logger.info(
+            "        %d vaga(s) fora do lote de enriquecimento (limite=%d)",
+            postponed,
+            _ENRICHMENT_LIMIT,
+        )
 
     # ── 3b. Busca descrições + re-filtro ──────────────────────────────────────
     logger.info("[ 3b  ] Buscando descrições das %d vaga(s) top...", len(new_jobs))
     new_jobs = fetch_descriptions(new_jobs)
 
     before_refilter = len(new_jobs)
-    new_jobs = filter_jobs([job for job, _ in new_jobs], min_score=3.0)
+    new_jobs = filter_jobs(
+        [job for job, _ in new_jobs],
+        min_score=10.0,
+        final=True,
+    )
     dropped_by_desc = before_refilter - len(new_jobs)
     if dropped_by_desc:
         logger.info(
@@ -127,6 +136,16 @@ def run_pipeline() -> None:
         logger.info("Nenhuma vaga aprovada após re-filtro com descrição. Encerrando ciclo.")
         logger.info(_SEP)
         return
+
+    _EMAIL_LIMIT = 20
+    if len(new_jobs) > _EMAIL_LIMIT:
+        discarded = len(new_jobs) - _EMAIL_LIMIT
+        new_jobs = new_jobs[:_EMAIL_LIMIT]
+        logger.info(
+            "        %d vaga(s) descartada(s) após ranking final (top %d)",
+            discarded,
+            _EMAIL_LIMIT,
+        )
 
     for job, score in new_jobs:
         logger.info(
@@ -170,7 +189,7 @@ def run_pipeline() -> None:
     logger.info(_SEP)
 
 
-_RESUME_FALLBACK = """\
+_LEGACY_RESUME_FALLBACK = """\
 PEDRO HENRIQUE BEZERRA DE LIMA
 Desenvolvedor Backend em Formação | Python · FastAPI · PostgreSQL · REST APIs
 pedrophbezerra@gmail.com | github.com/pedroprogramador-x | Maceió, AL
@@ -217,20 +236,107 @@ Português nativo | Inglês básico (leitura técnica)
 """
 
 
-def _ensure_resume() -> None:
-    """Garante que DATA_DIR/resume.txt existe, criando a partir do fallback se necessário."""
-    from pathlib import Path
-    data_dir = Path(os.getenv("DATA_DIR", "./data"))
+_RESUME_FALLBACK = """\
+PEDRO HENRIQUE BEZERRA DE LIMA
+Maceió, AL — Brasil
+Estudante de Engenharia de Software | Backend Python em formação
+
+OBJETIVO
+Estágio ou vaga júnior em desenvolvimento de software, com prioridade para backend Python, APIs REST, automação e integrações. Aberto também a oportunidades de entrada em backend ou full-stack com JavaScript ou Java.
+
+RESUMO PROFISSIONAL
+Estudante de Engenharia de Software com foco em desenvolvimento backend, automação e APIs. Possui experiência prática em projetos pessoais com Python, FastAPI, PostgreSQL, scraping, integrações externas, IA generativa, testes e notificações automatizadas. Não possui experiência profissional como desenvolvedor.
+
+CONHECIMENTOS
+Python, FastAPI, APIs REST, SQLAlchemy, PostgreSQL, JWT, Pydantic, Requests, BeautifulSoup, APScheduler, pytest, Git, GitHub, Railway e Linux básico.
+Integração com APIs externas, scraping, automação e IA generativa.
+JavaScript e Java em desenvolvimento.
+
+PROJETOS PESSOAIS
+
+SPORTS ANALYSIS BOT
+API REST com Python, FastAPI, PostgreSQL e SQLAlchemy para análise esportiva, seleção de value bets e histórico de picks.
+- Autenticação JWT com cadastro, login, hash de senha e tokens Bearer.
+- Integração com API externa de dados esportivos e Telegram Bot API.
+- Rotinas automáticas com APScheduler.
+- Testes automatizados para regras de negócio, resultados, timezone e estatísticas.
+- Deploy no Railway.
+
+JOB HUNTER BOT
+Worker Python em produção no Railway para monitoramento automatizado de vagas.
+- Coleta vagas de Gupy, LinkedIn e Programathor usando APIs e scraping.
+- Motor de scoring, busca de descrição completa e deduplicação.
+- Persistência com escrita atômica.
+- Gemini API para análise de compatibilidade entre vagas e currículo.
+- Brevo Transactional API para notificações por e-mail.
+- Testes automatizados, logs, diagnóstico de credenciais e tratamento de falhas.
+
+EXPERIÊNCIA PROFISSIONAL
+
+Carrefour — Atendimento e pós-venda por call center, home office — atual.
+Experiência não técnica com atendimento, comunicação e resolução de problemas.
+
+Operador de Caixa — Farmácia Permanente — fev/2025 a abr/2026 — Maceió/AL.
+- Operação do sistema Procfit, estoque, entrada de produtos e relatórios.
+- Abertura e fechamento de caixa, pagamentos e conciliação.
+- Treinamento de novos colaboradores.
+- Atendimento em ambiente de alto fluxo.
+
+FORMAÇÃO
+Bacharelado em Engenharia de Software — Estácio — mar/2025 a dez/2028, cursando — Maceió/AL.
+
+CURSOS
+Python do Zero ao Avançado — Módulos 1 e 2 — Curso em Vídeo.
+
+IDIOMAS
+Português nativo.
+Inglês básico, com leitura técnica de documentação e código.
+"""
+
+
+def _write_resume_atomic(resume_path: Path, content: str) -> None:
+    """Substitui o currículo por escrita atômica no mesmo diretório."""
+    tmp_path = resume_path.with_suffix(".tmp")
+    try:
+        tmp_path.write_text(content, encoding="utf-8")
+        os.replace(tmp_path, resume_path)
+    except OSError:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+
+
+def _ensure_resume(data_dir: Path | None = None) -> None:
+    """Cria ou migra o currículo conhecido sem sobrescrever personalizações."""
+    data_dir = data_dir or Path(os.getenv("DATA_DIR", "./data"))
     resume_path = data_dir / "resume.txt"
-    if resume_path.exists():
-        logger.debug("Currículo encontrado em '%s'.", resume_path)
-        return
+
     try:
         data_dir.mkdir(parents=True, exist_ok=True)
-        resume_path.write_text(_RESUME_FALLBACK, encoding="utf-8")
-        logger.info("Currículo criado em '%s' a partir do fallback hardcoded.", resume_path)
+        if not resume_path.exists():
+            _write_resume_atomic(resume_path, _RESUME_FALLBACK)
+            logger.info("Currículo criado em '%s' com o perfil atual.", resume_path)
+            return
+
+        persisted_resume = resume_path.read_text(encoding="utf-8")
+        if persisted_resume == _RESUME_FALLBACK:
+            logger.debug("Currículo persistido já está atualizado em '%s'.", resume_path)
+            return
+
+        if persisted_resume == _LEGACY_RESUME_FALLBACK:
+            _write_resume_atomic(resume_path, _RESUME_FALLBACK)
+            logger.info("Currículo legado migrado com segurança em '%s'.", resume_path)
+            return
+
+        logger.warning(
+            "Currículo persistido em '%s' difere da versão legada conhecida; "
+            "não foi atualizado automaticamente para preservar personalizações.",
+            resume_path,
+        )
     except OSError as exc:
-        logger.warning("Não foi possível criar o currículo em '%s': %s", resume_path, exc)
+        logger.warning("Não foi possível criar ou migrar o currículo em '%s': %s", resume_path, exc)
 
 
 def main() -> None:

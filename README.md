@@ -22,7 +22,7 @@ O bot executa um pipeline completo a cada intervalo configurado:
 
 ```
 🔍 Coleta       → Busca vagas no Gupy, LinkedIn e Programathor
-🎯 Filtra       → Pontua cada vaga por palavras-chave (python, remoto, júnior, etc.)
+🎯 Filtra       → Normaliza títulos, bloqueia senioridade/local incompatível e pontua o fit
 🔁 Deduplica    → Compara com vagas já notificadas, mantém só as novas
 🤖 Analisa      → Envia para o Gemini: qual vaga tem melhor fit com seu currículo
 📧 Envia        → Dispara e-mail HTML pela API transacional da Brevo com cards por fonte
@@ -37,8 +37,8 @@ O estado só é salvo **após** a confirmação de envio do e-mail. Se o envio f
 
 | Fonte | Método | Status |
 |---|---|---|
-| **Gupy** | API REST (`employability-portal.gupy.io`) | ✅ Ativo |
-| **LinkedIn** | Guest API pública (`/jobs-guest/`) | ✅ Ativo |
+| **Gupy** | API REST (`employability-portal.gupy.io`), remoto + Alagoas | ✅ Ativo |
+| **LinkedIn** | Guest API pública (`/jobs-guest/`), remoto + Maceió | ✅ Ativo |
 | **Programathor** | HTML scraping (BeautifulSoup4) | ⚠️ Bloqueado no Railway (Cloudflare) |
 | **Indeed** | RSS feed | ⚠️ Bloqueado no Railway (Cloudflare) |
 
@@ -151,7 +151,7 @@ O projeto está configurado para rodar como **worker process** (sem porta HTTP) 
 
 **Variáveis de ambiente** configuradas pelo painel do Railway (Settings → Variables).
 
-**Sobre o currículo:** ao iniciar, o bot verifica se `/data/resume.txt` existe no volume. Se não existir, cria automaticamente a partir de um conteúdo hardcoded no código — garantindo que a análise com IA funcione sem necessidade de upload manual.
+**Sobre o currículo:** ao iniciar, o bot cria `/data/resume.txt` quando ausente. Se encontrar exatamente a versão legada conhecida, migra atomicamente para o perfil atual. Conteúdo personalizado é preservado e gera um warning, sem sobrescrita automática.
 
 ---
 
@@ -166,8 +166,8 @@ A escrita no `seen_jobs.json` usa um arquivo temporário (`.tmp`) com `os.replac
 **Degradação graciosa em todas as integrações externas**
 Cada scraper, a análise Gemini e o envio de e-mail são encapsulados em `try/except` independentes. Se o Gemini estiver fora do ar ou a cota acabar, o e-mail é enviado sem a análise. Se o Programathor bloquear, os outros scrapers continuam. O bot nunca trava por falha de uma dependência externa.
 
-**Currículo como fallback hardcoded**
-O conteúdo do `resume.txt` está replicado em `main.py` como string constante. Isso resolve o problema de cold start no Railway: o volume pode estar vazio no primeiro deploy, mas a análise personalizada com IA funciona imediatamente sem nenhuma configuração manual adicional.
+**Currículo versionado com migração conservadora**
+O perfil atual e a versão legada conhecida ficam em `main.py`. O bot atualiza automaticamente apenas arquivos idênticos à versão legada; qualquer divergência é tratada como possível personalização e não é sobrescrita.
 
 ---
 
