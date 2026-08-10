@@ -1,10 +1,11 @@
+import hashlib
 import os
 import unittest
 from unittest.mock import Mock, patch
 
 import requests
 
-from core.email_sender import send_jobs_email
+from core.email_sender import check_brevo_account, send_jobs_email
 
 _JOBS = [
     (
@@ -24,7 +25,7 @@ _JOBS = [
 class SendJobsEmailTests(unittest.TestCase):
     def _env(self, **overrides: str) -> dict[str, str]:
         env = {
-            "BREVO_API_KEY": "brevo-test-key",
+            "BREVO_API_KEY": "xkeysib-test-key",
             "GMAIL_USER": "sender@example.com",
             "NOTIFY_EMAIL": "recipient@example.com",
         }
@@ -38,7 +39,7 @@ class SendJobsEmailTests(unittest.TestCase):
         with patch.dict(
             os.environ,
             self._env(
-                BREVO_API_KEY="  brevo-test-key  ",
+                BREVO_API_KEY="  xkeysib-test-key  ",
                 GMAIL_USER="  sender@example.com  ",
                 NOTIFY_EMAIL="  recipient@example.com  ",
             ),
@@ -50,7 +51,14 @@ class SendJobsEmailTests(unittest.TestCase):
         post.assert_called_once()
         args, kwargs = post.call_args
         self.assertEqual(args[0], "https://api.brevo.com/v3/smtp/email")
-        self.assertEqual(kwargs["headers"]["api-key"], "brevo-test-key")
+        self.assertEqual(
+            kwargs["headers"],
+            {
+                "api-key": "xkeysib-test-key",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+        )
         self.assertEqual(kwargs["timeout"], 15)
         payload = kwargs["json"]
         self.assertEqual(
@@ -70,7 +78,12 @@ class SendJobsEmailTests(unittest.TestCase):
         self.assertIn("vagas=1", log_output)
         self.assertIn("status_code=201", log_output)
         self.assertIn("E-mail enviado", log_output)
-        self.assertNotIn("brevo-test-key", log_output)
+        self.assertIn("presente=True", log_output)
+        self.assertIn(f"length={len('xkeysib-test-key')}", log_output)
+        self.assertIn("prefixo_esperado=True", log_output)
+        fingerprint = hashlib.sha256(b"xkeysib-test-key").hexdigest()[:8]
+        self.assertIn(f"fingerprint={fingerprint}", log_output)
+        self.assertNotIn("xkeysib-test-key", log_output)
 
     @patch("core.email_sender.requests.post")
     def test_authentication_failure_logs_status_and_body(self, post: Mock) -> None:
@@ -109,7 +122,7 @@ class SendJobsEmailTests(unittest.TestCase):
     @patch("core.email_sender.requests.post")
     def test_network_error_logs_redacted_traceback(self, post: Mock) -> None:
         post.side_effect = requests.ConnectionError(
-            "connection failed while using brevo-test-key"
+            "connection failed while using xkeysib-test-key"
         )
 
         with patch.dict(
@@ -122,7 +135,7 @@ class SendJobsEmailTests(unittest.TestCase):
         self.assertIn("Erro de rede", log_output)
         self.assertIn("Traceback", log_output)
         self.assertIn("[REDACTED]", log_output)
-        self.assertNotIn("brevo-test-key", log_output)
+        self.assertNotIn("xkeysib-test-key", log_output)
 
     @patch("core.email_sender.requests.post")
     def test_missing_brevo_api_key(self, post: Mock) -> None:
@@ -163,7 +176,7 @@ class SendJobsEmailTests(unittest.TestCase):
     def test_api_key_is_redacted_from_http_error_body(self, post: Mock) -> None:
         post.return_value = Mock(
             status_code=400,
-            text='{"message":"invalid brevo-test-key"}',
+            text='{"message":"invalid xkeysib-test-key"}',
         )
 
         with patch.dict(
@@ -174,7 +187,45 @@ class SendJobsEmailTests(unittest.TestCase):
         self.assertFalse(sent)
         log_output = "\n".join(captured.output)
         self.assertIn("[REDACTED]", log_output)
-        self.assertNotIn("brevo-test-key", log_output)
+        self.assertNotIn("xkeysib-test-key", log_output)
+
+    @patch("core.email_sender.requests.get")
+    def test_check_brevo_account_uses_same_authentication_headers(
+        self, get: Mock
+    ) -> None:
+        get.return_value = Mock(status_code=200, text='{"email":"owner@example.com"}')
+
+        with patch.dict(
+            os.environ, self._env(), clear=True
+        ), self.assertLogs("core.email_sender", level="INFO") as captured:
+            status_code, body = check_brevo_account()
+
+        self.assertEqual(status_code, 200)
+        self.assertEqual(body, '{"email":"owner@example.com"}')
+        get.assert_called_once_with(
+            "https://api.brevo.com/v3/account",
+            headers={
+                "api-key": "xkeysib-test-key",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            timeout=15,
+        )
+        self.assertNotIn("xkeysib-test-key", "\n".join(captured.output))
+
+    @patch("core.email_sender.requests.get")
+    def test_check_brevo_account_returns_sanitized_401(self, get: Mock) -> None:
+        get.return_value = Mock(
+            status_code=401,
+            text='{"message":"Key xkeysib-test-key not found","code":"unauthorized"}',
+        )
+
+        with patch.dict(os.environ, self._env(), clear=True):
+            status_code, body = check_brevo_account()
+
+        self.assertEqual(status_code, 401)
+        self.assertIn("[REDACTED]", body)
+        self.assertNotIn("xkeysib-test-key", body)
 
 
 if __name__ == "__main__":

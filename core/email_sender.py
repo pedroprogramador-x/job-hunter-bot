@@ -1,5 +1,6 @@
 # Módulo de envio de e-mail via API transacional da Brevo
 
+import hashlib
 import logging
 import os
 import traceback
@@ -15,6 +16,8 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 _BREVO_API_URL = "https://api.brevo.com/v3/smtp/email"
+_BREVO_ACCOUNT_URL = "https://api.brevo.com/v3/account"
+_BREVO_API_KEY_PREFIX = "xkeysib-"
 _REQUEST_TIMEOUT_SECONDS = 15
 
 
@@ -40,6 +43,53 @@ def _log_exception(message: str, api_key: str) -> None:
     logger.error("%s\n%s", message, _safe_log_text(traceback.format_exc(), api_key))
 
 
+def _load_brevo_api_key() -> str:
+    """Lê a chave e registra apenas metadados seguros para diagnóstico."""
+    api_key = os.getenv("BREVO_API_KEY", "").strip()
+    fingerprint = (
+        hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:8]
+        if api_key
+        else "<ausente>"
+    )
+    logger.info(
+        "BREVO_API_KEY carregada: presente=%s length=%d "
+        "prefixo_esperado=%s fingerprint=%s",
+        bool(api_key),
+        len(api_key),
+        api_key.startswith(_BREVO_API_KEY_PREFIX),
+        fingerprint,
+    )
+    return api_key
+
+
+def _brevo_headers(api_key: str) -> dict[str, str]:
+    """Monta os headers oficiais compartilhados pelas chamadas à Brevo."""
+    return {
+        "api-key": api_key,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+
+def check_brevo_account() -> tuple[int | None, str]:
+    """Valida manualmente a chave via GET /v3/account, sem enviar e-mail."""
+    api_key = _load_brevo_api_key()
+    if not api_key:
+        return None, "BREVO_API_KEY não configurada"
+
+    try:
+        response = requests.get(
+            _BREVO_ACCOUNT_URL,
+            headers=_brevo_headers(api_key),
+            timeout=_REQUEST_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException:
+        _log_exception("Erro de rede ao validar BREVO_API_KEY", api_key)
+        return None, "Erro de rede ao consultar a Brevo"
+
+    return response.status_code, _safe_log_text(response.text, api_key)
+
+
 def send_jobs_email(
     jobs: list[tuple[dict, float]],
     ai_analysis: str = "",
@@ -48,7 +98,7 @@ def send_jobs_email(
 
     Retorna True se o envio foi bem-sucedido (status 201), False caso contrário.
     """
-    api_key = os.getenv("BREVO_API_KEY", "").strip()
+    api_key = _load_brevo_api_key()
     from_email = os.getenv("GMAIL_USER", "").strip()
     notify_email = os.getenv("NOTIFY_EMAIL", "").strip()
 
@@ -89,11 +139,7 @@ def send_jobs_email(
         }
         response = requests.post(
             _BREVO_API_URL,
-            headers={
-                "accept": "application/json",
-                "api-key": api_key,
-                "content-type": "application/json",
-            },
+            headers=_brevo_headers(api_key),
             json=payload,
             timeout=_REQUEST_TIMEOUT_SECONDS,
         )
@@ -126,6 +172,11 @@ if __name__ == "__main__":
 
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+
+    if "--check-account" in sys.argv:
+        account_status, account_body = check_brevo_account()
+        print(f"status_code={account_status} body={account_body}")
+        raise SystemExit(0 if account_status == 200 else 1)
 
     mock_jobs: list[tuple[dict, float]] = [
         (
