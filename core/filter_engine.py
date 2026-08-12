@@ -1,7 +1,12 @@
 # Motor de filtragem de vagas por senioridade, localização e relevância técnica
 
+import logging
 import re
 import unicodedata
+
+from core.company_watchlist import match_target_company
+
+logger = logging.getLogger(__name__)
 
 _DESCRIPTION_TECH_SCORE_CAP = 5.0
 
@@ -274,8 +279,39 @@ def filter_jobs(
     for job in jobs:
         if is_job_blocked(job, final=final):
             continue
-        score = _score_job(job)
-        if score >= min_score:
-            passing.append((job, score))
+        base_score = _score_job(job)
+        if base_score < min_score:
+            continue
+
+        match = match_target_company(job.get("company", ""))
+        if match is None:
+            for field in (
+                "target_company",
+                "target_company_priority",
+                "target_company_category",
+                "watchlist_bonus",
+            ):
+                job.pop(field, None)
+            passing.append((job, base_score))
+            continue
+
+        already_annotated = job.get("target_company") == match.canonical_name
+        job.update(
+            {
+                "target_company": match.canonical_name,
+                "target_company_priority": match.priority,
+                "target_company_category": match.category,
+                "watchlist_bonus": match.bonus,
+            }
+        )
+        if not already_annotated:
+            logger.info(
+                "WATCHLIST MATCH | empresa=%s | prioridade=%s | bonus=%d | vaga=%s",
+                match.canonical_name,
+                match.priority,
+                match.bonus,
+                job.get("title", "?"),
+            )
+        passing.append((job, base_score + match.bonus))
     passing.sort(key=lambda item: item[1], reverse=True)
     return passing

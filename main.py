@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+from collections import Counter
 from pathlib import Path
 
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -21,6 +22,7 @@ logging.getLogger("apscheduler").setLevel(logging.WARNING)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # ── Importações dos módulos do bot ────────────────────────────────────────────
+from core.company_watchlist import match_target_company
 from core.description_fetcher import fetch_descriptions
 from core.email_sender import send_jobs_email
 from core.filter_engine import filter_jobs
@@ -31,6 +33,45 @@ from scrapers.linkedin_scraper import fetch_jobs as linkedin_fetch
 from scrapers.programathor_scraper import fetch_jobs as programathor_fetch
 
 _SEP = "─" * 60
+
+
+def _log_watchlist_presence(jobs: list[dict]) -> None:
+    """Registra presença por fonte para orientar monitoramento direto na Fase C2."""
+    presence: Counter[tuple[str, str]] = Counter()
+    for job in jobs:
+        match = match_target_company(job.get("company", ""))
+        if match:
+            presence[(job.get("source", "?"), match.canonical_name)] += 1
+
+    for (source, company), count in sorted(presence.items()):
+        logger.info(
+            "WATCHLIST PRESENCE | fonte=%s | empresa=%s | vagas=%d",
+            source,
+            company,
+            count,
+        )
+
+
+def _log_watchlist_summary(
+    collected_jobs: list[dict],
+    top_jobs: list[tuple[dict, float]] | None = None,
+) -> None:
+    matches = [
+        match_target_company(job.get("company", "")) for job in collected_jobs
+    ]
+    found = [match for match in matches if match]
+    unique_companies = {match.canonical_name for match in found}
+    top_matches = sum(
+        1
+        for job, _ in (top_jobs or [])
+        if job.get("target_company")
+        or match_target_company(job.get("company", ""))
+    )
+
+    logger.info("Watchlist:")
+    logger.info("  matches encontrados: %d", len(found))
+    logger.info("  empresas únicas: %d", len(unique_companies))
+    logger.info("  vagas da watchlist no top 20: %d", top_matches)
 
 
 def _safe_fetch(name: str, fetch_fn) -> list[dict]:
@@ -63,9 +104,11 @@ def run_pipeline() -> None:
         all_jobs.extend(_safe_fetch(name, fn))
 
     logger.info("        Total coletado: %d vaga(s)", len(all_jobs))
+    _log_watchlist_presence(all_jobs)
 
     if not all_jobs:
         logger.warning("Nenhuma vaga coletada em nenhuma fonte. Encerrando ciclo.")
+        _log_watchlist_summary(all_jobs)
         return
 
     # ── 2. Filtro de relevância ───────────────────────────────────────────────
@@ -78,6 +121,7 @@ def run_pipeline() -> None:
 
     if not scored_jobs:
         logger.warning("Nenhuma vaga atingiu o score mínimo. Encerrando ciclo.")
+        _log_watchlist_summary(all_jobs)
         return
 
     # ── 3. Filtra novas ───────────────────────────────────────────────────────
@@ -100,6 +144,7 @@ def run_pipeline() -> None:
     # ── 4. Sem novidades → encerra ────────────────────────────────────────────
     if not new_jobs:
         logger.info("Nenhuma vaga nova neste ciclo. Aguardando próxima execução.")
+        _log_watchlist_summary(all_jobs)
         logger.info(_SEP)
         return
 
@@ -134,6 +179,7 @@ def run_pipeline() -> None:
 
     if not new_jobs:
         logger.info("Nenhuma vaga aprovada após re-filtro com descrição. Encerrando ciclo.")
+        _log_watchlist_summary(all_jobs)
         logger.info(_SEP)
         return
 
@@ -178,6 +224,7 @@ def run_pipeline() -> None:
         )
 
     # ── 8. Resumo do ciclo ────────────────────────────────────────────────────
+    _log_watchlist_summary(all_jobs, new_jobs)
     logger.info(_SEP)
     logger.info(
         "CICLO CONCLUÍDO  |  coletadas: %d  |  filtradas: %d  |  novas: %d  |  email: %s",

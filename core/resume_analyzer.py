@@ -39,6 +39,12 @@ def _build_prompt(jobs: list[tuple[dict, float]]) -> str:
             f"- {job.get('title', '?')} | {job.get('company', '?')} "
             f"| {job.get('source', '?')} | Score: {score:.1f}"
         )
+        if job.get("target_company"):
+            line += (
+                "\n  Empresa estratégica monitorada: sim"
+                f"\n  Categoria: {job.get('target_company_category', '?')}"
+                f"\n  Prioridade: {job.get('target_company_priority', '?')}"
+            )
         if desc:
             line += f"\n  Descrição: {desc[:300]}"
         lines.append(line)
@@ -51,6 +57,7 @@ def _build_prompt(jobs: list[tuple[dict, float]]) -> str:
 
 Analise as vagas abaixo e compare com o currículo do candidato.
 Identifique: quais vagas têm melhor fit, o que destacar ou ajustar no currículo para cada vaga, e uma dica prática de candidatura.
+Use a watchlist apenas como prioridade estratégica. Não faça afirmações sobre a qualidade da empresa como empregadora sem dados que as sustentem.
 
 CURRÍCULO DO CANDIDATO:
 {resume}
@@ -64,6 +71,7 @@ Responda em HTML simples (sem markdown, sem ```html). Máximo 250 palavras. Seja
     return f"""Você é um assistente de carreira especializado em tecnologia.
 
 Analise as seguintes vagas e forneça sugestões práticas e diretas para um estudante de Engenharia de Software que busca estágio ou vaga júnior. Priorize backend Python, APIs, automação e integrações, mas considere também oportunidades de entrada com JavaScript ou Java, remotas no Brasil ou localizadas em Maceió/AL.
+Use a watchlist apenas como prioridade estratégica. Não faça afirmações sobre a qualidade da empresa como empregadora sem dados que as sustentem.
 
 VAGAS ENCONTRADAS:
 {jobs_block}

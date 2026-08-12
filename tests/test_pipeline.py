@@ -72,6 +72,48 @@ class PipelineTests(unittest.TestCase):
         save_seen = mocks[8]
         save_seen.assert_not_called()
 
+    def test_watchlist_telemetry_reports_sources_unique_companies_and_top_20(
+        self,
+    ) -> None:
+        magalu = {
+            **_jobs(1)[0],
+            "source": "Gupy",
+            "company": "Magazine Luiza",
+            "target_company": "Magalu Cloud",
+        }
+        magalu_alias = {
+            **_jobs(1)[0],
+            "id": "job-1",
+            "source": "Gupy",
+            "company": "LuizaLabs",
+        }
+        roga = {
+            **_jobs(1)[0],
+            "id": "job-2",
+            "source": "LinkedIn",
+            "company": "Roga Labs",
+        }
+
+        with self.assertLogs("main", level="INFO") as captured:
+            main._log_watchlist_presence([magalu, magalu_alias, roga])
+            main._log_watchlist_summary(
+                [magalu, magalu_alias, roga],
+                [(magalu, 18.0), (roga, 19.0)],
+            )
+
+        output = "\n".join(captured.output)
+        self.assertIn(
+            "WATCHLIST PRESENCE | fonte=Gupy | empresa=Magalu Cloud | vagas=2",
+            output,
+        )
+        self.assertIn(
+            "WATCHLIST PRESENCE | fonte=LinkedIn | empresa=Roga Labs | vagas=1",
+            output,
+        )
+        self.assertIn("matches encontrados: 3", output)
+        self.assertIn("empresas únicas: 2", output)
+        self.assertIn("vagas da watchlist no top 20: 2", output)
+
 
 if __name__ == "__main__":
     unittest.main()

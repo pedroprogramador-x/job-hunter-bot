@@ -28,6 +28,12 @@ def _job_card(job: dict, score: float) -> str:
     location = html.escape(job.get("location", "") or "—")
     source   = html.escape(job.get("source", "—"))
     url      = _safe_url(job.get("url", "#"))
+    watchlist_badge = ""
+    if job.get("target_company"):
+        watchlist_badge = """
+        <p style="margin:0 0 8px 0;font-size:12px;font-weight:600;color:#92400e;">
+            ⭐ Empresa monitorada
+        </p>"""
 
     return f"""
     <div style="
@@ -47,6 +53,7 @@ def _job_card(job: dict, score: float) -> str:
             &nbsp;&nbsp;
             📍 {location}
         </p>
+        {watchlist_badge}
         <p style="margin:0 0 12px 0;font-size:13px;color:#6b7280;">
             <span style="
                 background:{color};
@@ -74,7 +81,7 @@ def _job_card(job: dict, score: float) -> str:
 
 
 def render_email(jobs: list[tuple[dict, float]], ai_analysis: str = "") -> str:
-    now_str = datetime.now().strftime("%d/%m/%Y às %H:%M")
+    now_str = datetime.now().strftime("%d/%m/%Y às %H:%M")  # noqa: DTZ005
     count   = len(jobs)
 
     cards_html = "\n".join(_job_card(job, score) for job, score in jobs)
