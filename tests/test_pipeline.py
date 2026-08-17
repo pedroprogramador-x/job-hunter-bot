@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 import main
+from core.job_deduplication import deduplicate_jobs
 
 
 def _jobs(count: int) -> list[dict]:
@@ -38,7 +39,11 @@ class PipelineTests(unittest.TestCase):
             return [({**job, "description": "Python APIs"}, score) for job, score in received]
 
         patches = [
-            patch("main.gupy_fetch", return_value=jobs),
+            patch("main.gupy_scraper.fetch_jobs", return_value=jobs),
+            patch(
+                "main.gupy_scraper.fetch_strategic_gupy_boards",
+                return_value=[],
+            ),
             patch("main.linkedin_fetch", return_value=[]),
             patch("main.programathor_fetch", return_value=[]),
             patch("main.filter_jobs", side_effect=filter_side_effect),
@@ -60,8 +65,8 @@ class PipelineTests(unittest.TestCase):
 
     def test_enriches_top_40_and_emails_top_20(self) -> None:
         mocks = self._run_pipeline(email_sent=True)
-        send_email = mocks[7]
-        save_seen = mocks[8]
+        send_email = mocks[8]
+        save_seen = mocks[9]
 
         sent_jobs = send_email.call_args.args[0]
         self.assertEqual(len(sent_jobs), 20)
@@ -69,7 +74,7 @@ class PipelineTests(unittest.TestCase):
 
     def test_does_not_save_state_when_email_fails(self) -> None:
         mocks = self._run_pipeline(email_sent=False)
-        save_seen = mocks[8]
+        save_seen = mocks[9]
         save_seen.assert_not_called()
 
     def test_watchlist_telemetry_reports_sources_unique_companies_and_top_20(
@@ -113,6 +118,44 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("matches encontrados: 3", output)
         self.assertIn("empresas únicas: 2", output)
         self.assertIn("vagas da watchlist no top 20: 2", output)
+
+    def test_cycle_deduplication_preserves_only_one_global_strategic_job(
+        self,
+    ) -> None:
+        global_job = _jobs(1)[0]
+        strategic_copy = {
+            **global_job,
+            "company": "It4us Cyber Security",
+            "url": global_job["url"] + "?utm_source=strategic",
+        }
+
+        self.assertEqual(
+            deduplicate_jobs([global_job, strategic_copy]),
+            [global_job],
+        )
+
+    def test_pipeline_deduplicates_before_filtering(self) -> None:
+        global_job = _jobs(1)[0]
+        strategic_copy = {
+            **global_job,
+            "company": "It4us Cyber Security",
+            "url": global_job["url"] + "?jobBoardSource=strategic",
+        }
+
+        with (
+            patch("main.gupy_scraper.fetch_jobs", return_value=[global_job]),
+            patch(
+                "main.gupy_scraper.fetch_strategic_gupy_boards",
+                return_value=[strategic_copy],
+            ),
+            patch("main.linkedin_fetch", return_value=[]),
+            patch("main.programathor_fetch", return_value=[]),
+            patch("main.filter_jobs", return_value=[]) as filter_jobs,
+            patch("main.logger"),
+        ):
+            main.run_pipeline()
+
+        self.assertEqual(filter_jobs.call_args.args[0], [global_job])
 
 
 if __name__ == "__main__":

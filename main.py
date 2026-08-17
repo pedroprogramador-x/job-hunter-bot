@@ -26,9 +26,10 @@ from core.company_watchlist import match_target_company
 from core.description_fetcher import fetch_descriptions
 from core.email_sender import send_jobs_email
 from core.filter_engine import filter_jobs
+from core.job_deduplication import deduplicate_jobs
 from core.resume_analyzer import analyze_jobs
 from core.state_manager import filter_new_jobs, save_seen_ids
-from scrapers.gupy_scraper import fetch_jobs as gupy_fetch
+from scrapers import gupy_scraper
 from scrapers.linkedin_scraper import fetch_jobs as linkedin_fetch
 from scrapers.programathor_scraper import fetch_jobs as programathor_fetch
 
@@ -95,14 +96,30 @@ def run_pipeline() -> None:
 
     # ── 1. Coleta ─────────────────────────────────────────────────────────────
     logger.info("[ 1/7 ] Coletando vagas dos scrapers...")
-    all_jobs: list[dict] = []
+    gupy_jobs = _safe_fetch("Gupy", gupy_scraper.fetch_jobs)
+    try:
+        strategic_gupy_jobs = gupy_scraper.fetch_strategic_gupy_boards(
+            gupy_jobs
+        )
+    except Exception as exc:  # noqa: BLE001 - última barreira de isolamento
+        logger.error("Gupy Strategic  ✘  erro inesperado: %s", exc)
+        strategic_gupy_jobs = []
+
+    all_jobs: list[dict] = [*gupy_jobs, *strategic_gupy_jobs]
     for name, fn in [
-        ("Gupy",         gupy_fetch),
         ("LinkedIn",     linkedin_fetch),
         ("Programathor", programathor_fetch),
     ]:
         all_jobs.extend(_safe_fetch(name, fn))
 
+    collected_before_deduplication = len(all_jobs)
+    all_jobs = deduplicate_jobs(all_jobs)
+    removed_duplicates = collected_before_deduplication - len(all_jobs)
+    if removed_duplicates:
+        logger.info(
+            "        Deduplicação global: %d duplicata(s) removida(s)",
+            removed_duplicates,
+        )
     logger.info("        Total coletado: %d vaga(s)", len(all_jobs))
     _log_watchlist_presence(all_jobs)
 

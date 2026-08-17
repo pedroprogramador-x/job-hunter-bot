@@ -21,9 +21,9 @@ O Job Hunter Bot resolve um problema concreto: acompanhar manualmente múltiplos
 O bot executa um pipeline completo a cada intervalo configurado:
 
 ```
-🔍 Coleta       → Busca vagas no Gupy, LinkedIn e Programathor
+🔍 Coleta       → Busca vagas no Gupy global + boards estratégicos, LinkedIn e Programathor
 🎯 Filtra       → Normaliza títulos, bloqueia senioridade/local incompatível e pontua o fit
-🔁 Deduplica    → Compara com vagas já notificadas, mantém só as novas
+🔁 Deduplica    → Remove duplicatas do ciclo e compara com vagas já notificadas
 🤖 Analisa      → Envia para o Gemini: qual vaga tem melhor fit com seu currículo
 📧 Envia        → Dispara e-mail HTML pela API transacional da Brevo com cards por fonte
 💾 Salva estado → Marca as vagas notificadas para não repetir no próximo ciclo
@@ -37,7 +37,7 @@ O estado só é salvo **após** a confirmação de envio do e-mail. Se o envio f
 
 | Fonte | Método | Status |
 |---|---|---|
-| **Gupy** | API REST (`employability-portal.gupy.io`), remoto + Alagoas | ✅ Ativo |
+| **Gupy** | API REST: busca global remoto + Alagoas e boards estratégicos configuráveis | ✅ Ativo |
 | **LinkedIn** | Guest API pública (`/jobs-guest/`), remoto + Maceió | ✅ Ativo |
 | **Programathor** | HTML scraping (BeautifulSoup4) | ⚠️ Bloqueado no Railway (Cloudflare) |
 | **Indeed** | RSS feed | ⚠️ Bloqueado no Railway (Cloudflare) |
@@ -78,6 +78,8 @@ job-hunter-bot/
 │   └── indeed_scraper.py        # RSS feed (retorna vazio — Cloudflare)
 │
 ├── core/
+│   ├── strategic_boards.py      # Configuração central dos boards estratégicos
+│   ├── job_deduplication.py     # Deduplicação por ID, URL canônica e fallback seguro
 │   ├── filter_engine.py         # Scoring por palavras-chave e pesos
 │   ├── state_manager.py         # Persistência de vagas já notificadas
 │   ├── resume_analyzer.py       # Análise de fit com Gemini API
@@ -165,6 +167,9 @@ A escrita no `seen_jobs.json` usa um arquivo temporário (`.tmp`) com `os.replac
 
 **Degradação graciosa em todas as integrações externas**
 Cada scraper, a análise Gemini e o envio de e-mail são encapsulados em `try/except` independentes. Se o Gemini estiver fora do ar ou a cota acabar, o e-mail é enviado sem a análise. Se o Programathor bloquear, os outros scrapers continuam. O bot nunca trava por falha de uma dependência externa.
+
+**Boards estratégicos da Gupy orientados por configuração**
+It4us, Hand Talk e Trakto usam o mesmo endpoint e o mesmo parser da coleta global. Para adicionar outra empresa, inclua uma entrada em `core/strategic_boards.py` com nome canônico, slug, `company_id`, categoria e prioridade; não é necessário criar outro scraper. Cada board falha isoladamente e os logs mostram vagas coletadas, duplicadas com a busca global e realmente adicionadas.
 
 **Currículo versionado com migração conservadora**
 O perfil atual e a versão legada conhecida ficam em `main.py`. O bot atualiza automaticamente apenas arquivos idênticos à versão legada; qualquer divergência é tratada como possível personalização e não é sobrescrita.

@@ -3,6 +3,9 @@ from datetime import datetime, timezone
 
 import requests
 
+from core.job_deduplication import collect_identity_keys, job_identity_keys
+from core.strategic_boards import GUPY_STRATEGIC_BOARDS, GupyStrategicBoard
+
 logger = logging.getLogger(__name__)
 
 # A Gupy migrou do endpoint público portal.gupy.io/api para este BFF interno
@@ -69,6 +72,7 @@ _MACEIO_PARAMS = {
     "limit": 20,
     "sortBy": "publishedDate",
 }
+_STRATEGIC_PAGE_SIZE = 100
 
 
 def _is_application_open(job: dict) -> bool:
@@ -123,6 +127,143 @@ def _fetch_term(term: str, base_params: dict) -> list[dict]:
         logger.error("Gupy: erro de rede para termo '%s': %s", term, exc)
         return []
     return data.get("data") or []
+
+
+def _fetch_strategic_board(board: GupyStrategicBoard) -> list[dict]:
+    """Coleta todas as vagas abertas de um board usando o endpoint existente."""
+    jobs: list[dict] = []
+    offset = 0
+
+    while True:
+        params = {
+            "companyId": board.company_id,
+            "limit": _STRATEGIC_PAGE_SIZE,
+            "offset": offset,
+            "sortBy": "publishedDate",
+        }
+        try:
+            response = requests.get(
+                _API_URL,
+                params=params,
+                headers=_HEADERS,
+                timeout=15,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except ValueError as exc:
+            logger.error(
+                "GUPY STRATEGIC BOARD | empresa=%s | JSON inválido: %s",
+                board.canonical_name,
+                exc,
+            )
+            return jobs
+        except requests.Timeout as exc:
+            logger.warning(
+                "GUPY STRATEGIC BOARD | empresa=%s | timeout: %s",
+                board.canonical_name,
+                exc,
+            )
+            return jobs
+        except requests.RequestException as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            logger.error(
+                "GUPY STRATEGIC BOARD | empresa=%s | HTTP=%s | erro=%s",
+                board.canonical_name,
+                status or "indisponível",
+                exc,
+            )
+            return jobs
+
+        if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+            logger.error(
+                "GUPY STRATEGIC BOARD | empresa=%s | payload inválido",
+                board.canonical_name,
+            )
+            return jobs
+
+        page = payload["data"]
+        for raw_job in page:
+            if not isinstance(raw_job, dict):
+                continue
+            parsed = _parse_job(raw_job)
+            if parsed["id"] == "gupy_" or not parsed["applications_open"]:
+                continue
+            parsed["company"] = board.canonical_name
+            jobs.append(parsed)
+
+        pagination = payload.get("pagination") or {}
+        total = pagination.get("total") if isinstance(pagination, dict) else None
+        if not page or len(page) < _STRATEGIC_PAGE_SIZE:
+            break
+        if isinstance(total, int) and offset + len(page) >= total:
+            break
+        offset += len(page)
+
+    return jobs
+
+
+def fetch_strategic_gupy_boards(
+    global_jobs: list[dict] | None = None,
+) -> list[dict]:
+    """Coleta boards configurados e retorna somente vagas novas no ciclo."""
+    baseline = global_jobs or []
+    global_keys = collect_identity_keys(baseline)
+    seen_keys = set(global_keys)
+    added_jobs: list[dict] = []
+    total_collected = 0
+    total_global_duplicates = 0
+
+    active_boards = [board for board in GUPY_STRATEGIC_BOARDS if board.active]
+    for board in active_boards:
+        try:
+            board_jobs = _fetch_strategic_board(board)
+        except Exception as exc:  # noqa: BLE001 - isola falha por empresa
+            logger.error(
+                "GUPY STRATEGIC BOARD | empresa=%s | erro inesperado: %s",
+                board.canonical_name,
+                exc,
+            )
+            board_jobs = []
+
+        duplicate_global = 0
+        added_by_board = 0
+        total_collected += len(board_jobs)
+
+        for job in board_jobs:
+            keys = job_identity_keys(job)
+            if keys and any(key in global_keys for key in keys):
+                duplicate_global += 1
+            if keys and any(key in seen_keys for key in keys):
+                continue
+            seen_keys.update(keys)
+            added_jobs.append(job)
+            added_by_board += 1
+
+        total_global_duplicates += duplicate_global
+        logger.info(
+            "GUPY STRATEGIC BOARD | empresa=%s | coletadas=%d",
+            board.canonical_name,
+            len(board_jobs),
+        )
+        logger.info(
+            "GUPY STRATEGIC VALUE | empresa=%s | coletadas=%d | "
+            "duplicadas_global=%d | exclusivas=%d",
+            board.canonical_name,
+            len(board_jobs),
+            duplicate_global,
+            added_by_board,
+        )
+
+    logger.info("Gupy Strategic Boards:")
+    logger.info("  boards consultados: %d", len(active_boards))
+    logger.info("  vagas coletadas: %d", total_collected)
+    logger.info(
+        "  duplicatas removidas: %d",
+        total_collected - len(added_jobs),
+    )
+    logger.info("  duplicatas com Gupy global: %d", total_global_duplicates)
+    logger.info("  vagas únicas adicionadas: %d", len(added_jobs))
+    return added_jobs
 
 
 def fetch_jobs(params: dict | None = None) -> list[dict]:
